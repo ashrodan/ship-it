@@ -144,6 +144,7 @@ so far is in Herdr's JavaScript JIT, with measurements and next steps.
   and checks the mods, and with `--layout` runs `scripts/add-to-layout.py`.
   `--sync` only refreshes the copies.
 - `scripts/perf/`: the window-stall check (`run.sh`).
+- `scripts/showcase/`: builds the showcase video from window captures.
 - `docs/performance.md`: the stall investigation and its next steps.
 - `RECIPE.md`: the full spec, detailed enough for an agent to rebuild it.
 
