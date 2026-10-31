@@ -68,8 +68,9 @@ radius 6, `hover` background. Left to right:
      GitHub remote. Toggles the Pull requests panel.
    - **Ship** (`rocket`), solid (`solid` / `solid_foreground`) when the PR
      can merge; quiet, with the reason as its hover text, when it can't
-     (no PR, draft, conflicts, merged, closed). The PR title is not on the
-     strip: it is the PR group's hover text.
+     (no PR, draft, conflicts, merged, closed). "Shipping…" while the merge
+     runs; once merged it reads **Shipped** with a `git-merge` icon, dim.
+     The PR title is not on the strip: it is the PR group's hover text.
 
 Narrower than 900px, the folder shows only the repo name.
 
@@ -88,18 +89,45 @@ pane's Files view has the same as an **Open** button and `e`:
   on the open file closes it.
 - Below: the picked file's diff against the merge base, with line numbers,
   in the terminal font. No commit box.
-- The base is the one the strip found (`shared("ship-it.base")`, set with
-  the repo root and machine), else `origin/HEAD`, `main` or `master`. Local
-  repos refresh on a folder watch, others every 10 s.
+- Empty: "No changes since origin/main", "Not a git repository", "No base
+  branch to compare with".
 
-### Performance
+### The Pull requests panel (`ship-it-prs`)
 
-Every mod redraw redraws the whole window, and `render` runs on every
-change to Herdr's live data (agents, focus, shared state). So: notify only
-when what shows changed; write shared state only when its value changed;
-let a folder-watch burst settle (1–1.5 s) into one refresh; poll a local
-repo only as a backstop (its watch catches edits); follow focus in
-`render`, not on a timer; never read file contents just to count lines.
+A side panel in the same stack, framed like Herdr's panels (radius 10, 1px
+`border`, `background`), text 13px:
+
+- Header, 42px: "Pull requests" semibold, an `n open` chip (10px, 1px
+  `border`, radius 4, `muted`), and on the right a 22px refresh button.
+- Filters, a row of three 24px segments: **All**, **Mine**, **To review**.
+  The chosen one has the `selected` fill and `foreground` text; the others
+  are `muted`.
+- Rows (7px vertical padding, radius 7, `hover` fill), newest update first:
+  - line 1: the state icon (green open, `muted` draft), the title in
+    `foreground`, truncated, and a checks icon on the right (`circle-x` red,
+    `circle-dot` amber, `circle-check` green; none when the PR has no checks);
+  - line 2, 11px `dim`, indented under the title: `#n` in `muted`, the
+    author, "· 3h", "· this branch" in `accent` for the current branch's
+    PR, then on the right the review decision ("Approved" green, "Changes
+    requested" red) and `+add −del`.
+  - The current branch's PR has the `selected` fill.
+- Empty: "No open pull requests", "No open pull requests of yours",
+  "Nothing waiting for your review", "No GitHub remote", "gh is not logged
+  in".
+
+### The file pane (`ship-it-file`)
+
+A mod pane with one file, read-only: a 36px header (the folder in `dim`, the
+name semibold) over Herdr's code view (`Editor`, line numbers, syntax colours
+from the theme's ANSI colours, the terminal font at 12px). "Binary file · no
+text preview" or "This file is not there now (deleted on this branch?)"
+when it can't show it.
+
+### The Ship confirm
+
+Herdr's own `confirm` dialog, 420 × 200: "Ship #720?" and "Squash and merge
+`head` into `base`. Note: 2 checks failing, not approved yet, 1 open thread.
+The branch stays." (the Note only lists what applies).
 
 ### The review pane (`ship-it-review`)
 
@@ -164,8 +192,9 @@ button. Without `gh`: "GitHub is not reachable" and the reason.
   `square` / `square-check` viewed box. Viewed rows fade to 50%. The open
   file has the `selected` background.
 - **File header**, 36px on `raised`: status, path, "● uncommitted", an
-  "n threads" chip that opens the drawer, and a **Viewed** toggle (green
-  when on).
+  "n threads" chip that opens the drawer, an **Open** button
+  (`external-link`, opens the file from the worktree in the file pane;
+  hidden for deleted files) and a **Viewed** toggle (green when on).
 - **Diff**, the rest: the terminal font at 11.5px, 20px rows, virtual,
   scrolling both ways. Columns: a 30px thread gutter, old line number, new
   line number (38px each, `dim`), the sign, the text. Added rows on green
@@ -208,12 +237,14 @@ a close button.
   the machine of the active space (or of a focused remote terminal block).
   With a mod pane focused it keeps the last terminal's folder in this
   space, else the first terminal of the same tab, else the space's folder.
-- **Refresh.** Git facts every 5s, on branch or folder change, and on
-  `watchFolder` events for local repos. PR facts, checks and review threads
-  load on branch change, then every 30s while checks are pending, else every
-  2 minutes. A load for a branch you've left never blocks the next one, and
-  its results are dropped. The base and the counts always belong to the
-  branch they were computed for.
+- **Refresh.** On every focus or space change (checked in `render`), on
+  `watchFolder` events for local repos (a burst settles for 1 s into one
+  refresh), and on a timer: every 5 s for remote repos, every 30 s for
+  local ones. PR facts, checks and review threads load on branch change,
+  then every 30 s while checks are pending, else every 2 minutes. A load
+  for a branch you've left never blocks the next one, and its results are
+  dropped. The base and the counts always belong to the branch they were
+  computed for. The strip redraws only when what it shows changed.
 - **Clicks.**
   - Machine: nothing.
   - Folder: toggles the Files panel.
@@ -233,7 +264,23 @@ a close button.
     after the dialog opened makes GitHub refuse. The branch is not deleted.
   - Opening the review pane focuses this tab's pane if one exists, else
     splits one to the right of a pane in the tab on screen.
-- Agent status does not show in the strip.
+- **Agent status** (working, blocked, done, idle) does not show anywhere in
+  Ship it; Herdr's own agents list and pane headers show it.
+
+### Panels and the file pane
+
+- **PR changes:** a click on a file shows its diff; a click on the open
+  file closes it; a double-click, or the open icon on the selected row,
+  opens it in the file pane. The file pane is this tab's if it has one
+  (it switches to the new file), else a new one split to the right.
+- **Pull requests:** a row opens the PR on GitHub; `#n` copies its link and
+  shows a toast; the filters switch at once; refresh reloads. It reloads
+  every 60 s while shown.
+- **File pane:** follows edits to the file (folder watch, 1.5 s settle);
+  remote files reload every 15 s.
+- **Lazy:** a panel that isn't the one showing, and a review or file pane
+  in a tab that isn't on screen, does no work: a timer tick or file change
+  only marks it stale, and it catches up when it shows.
 
 ### Review pane
 
@@ -249,18 +296,23 @@ a close button.
 - **Threads.** RIGHT-side threads map to new line numbers, LEFT-side to
   old. Outdated threads have no line: they show in the file header's chip,
   in Open threads, and in the drawer.
-- **Refresh.** On open, on `r`, when the strip asks, and every 10s for
-  remote repos. Local repos refresh the file list on `watchFolder` events.
-  Checks reload every 20s while any is pending.
+- **Refresh.** On open, on `r`, when the strip asks, and every 10 s for
+  remote repos. Local repos refresh the file list on `watchFolder` events
+  (1.5 s settle). Checks reload every 20 s while any is pending. The file
+  list and diffs load only while the Files tab shows (the tab badge uses
+  GitHub's file count until then), and start in parallel with the GitHub
+  calls when the strip already knows the base.
 - **Keys** (pane focused, not typing): `1` `2` `3` tabs, `r` refresh, `o`
   open on GitHub, `esc` closes the drawer or log. Files: `j`/`down`,
-  `k`/`up`, `v`, `n` next unviewed (wraps). Checks: `j`/`k` move, `enter`
+  `k`/`up`, `v`, `n` next unviewed (wraps), `e` open the file in the file
+  pane. Checks: `j`/`k` move, `enter`
   opens the log of a failed check or the link of another. In a text box
   `⌘↵` / `ctrl-↵` posts and `esc` leaves the box.
 - **Commands** (bind in `keys.json` or run with `herdr-app do`, shown
   copies only): `ship-it-review.overview`, `.files`, `.checks`, `.refresh`,
-  `.next`, `.prev`, `.next-unviewed`, `.threads`, `.log`,
-  `.file:<path>`.
+  `.next`, `.prev`, `.next-unviewed`, `.open-file`, `.threads`, `.log`,
+  `.file:<path>`. Ship it needs no `keys.json`: every key above works with
+  the pane focused.
 - **Writes to GitHub**, each only on a click: Comment (`gh pr comment`),
   Reply and Resolve/Reopen (GraphQL `addPullRequestReviewThreadReply`,
   `resolveReviewThread`, `unresolveReviewThread`), Re-run failed
@@ -297,11 +349,17 @@ a close button.
     `{"place": "none", "title": "Review"}`.
   - `mods/ship-it-changes/`: `main.js` (the panel), copies of `data.js`
     and `files.js`, `mod.json` `{"place": "none", "title": "PR changes"}`.
-  - `scripts/install.sh` copies `data.js` and `icons/` into the review mod
-    and `data.js` and `files.js` into the changes mod (a mod can't import
-    from another mod's folder), then the three mods into
-    `${HERDR_APP_HOME:-~/.config/herdr-app}/mods/` and checks them.
-    `--sync` only refreshes the copies.
+  - `mods/ship-it-prs/`: `main.js` (the panel), a copy of `data.js`,
+    `mod.json` `{"place": "none", "title": "Pull requests"}`.
+  - `mods/ship-it-file/`: `main.js` (the file pane), `mod.json`
+    `{"place": "none", "title": "File"}`. Props `{ root, on, path }`.
+  - `scripts/install.sh` copies `data.js`, `files.js` and `icons/` into
+    the mods that use them (a mod can't import from another mod's folder),
+    installs the five into `${HERDR_APP_HOME:-~/.config/herdr-app}/mods/`
+    and checks them; `--layout <name>` then adds the three blocks with
+    `scripts/add-to-layout.py` (once, with a backup; it refuses Herdr's
+    read-only `main`, `terminals` and `win98`). `--sync` only refreshes
+    the copies.
 - **Layout change**, in the person's own layout (clone a shipped one
   first): one block in the work column, between the tab bar and the pane
   area, and one child in the `panel-body` stack, after `changes`. Nothing
@@ -313,18 +371,30 @@ a close button.
   { "id": "ship-it-prs", "type": "block", "content": { "mod": "ship-it-prs" } }
   ```
 
-  The PR changes and Files buttons need the shipped `panel` column and
-  `panel-body` stack with `files` and `ship-it-changes` children; they
-  hide without them.
+  The buttons need the shipped `panel` column and `panel-body` stack: PR
+  changes and PRs hide without their children, and the folder click needs
+  `files`.
 - **The pane's props:** `{ root, on, tab }` (repo root, machine, first tab).
   The strip also sets `shared("ship-it.target") = { root, on, tab, at }`
   when it opens or focuses a pane; a pane follows a newer target's `tab`
   when the root matches, and offers **Switch** when it doesn't.
+- **Shared state:** `ship-it.target` (above), `ship-it.base` `{ root, on,
+  ref }` (the strip's base, read by the panel and the review pane),
+  `ship-it.prs` `{ root, on, count }` (the PR list's count, shown on the
+  PRs button), `ship-it.file` `{ root, on, path, at }` (which file the
+  file pane shows). Each is written only when its value changes.
 - **`herdr` functions:** `spaces`, `panes`, `focused`, `layout`, `theme`,
-  `settings`, `props`, `shared`, `setShared`, `exec`, `readTextFile`,
-  `watchFolder`, `notify`, `nextCommand`, `home`; `localStorage`.
-  gpui-base: `v_virtual_list` (with `on_item_click`, `track_scroll`),
-  `Scrollbar`, `TextView.markdown`, `TextareaState` / `Textarea`.
+  `settings`, `props`, `shared`, `setShared`, `run`, `exec`,
+  `readTextFile`, `watchFolder`, `notify`, `nextCommand`, `openOverlay`,
+  `home`; `localStorage`. gpui-base: `v_virtual_list` (with
+  `on_item_click`, `track_scroll`), `Scrollbar`, `TextView.markdown`,
+  `TextareaState` / `Textarea`, `EditorState` / `Editor`. `cx.sleep` for
+  the watch settle.
+- **Shipped mods used:** `confirm` (the Ship dialog, opened with
+  `openOverlay({ mod: "confirm", kind: "dialog", props: { title, detail,
+  command: { name: "ship-it.merge" } } })`; the strip gets `merge` from
+  `nextCommand()` and merges what it stored when it opened the dialog,
+  if under 2 minutes old), `toast` (through `notify`).
 - **Commands:** `layout.select`, `layout.show`, `layout.hide`,
   `pane.split`, `pane.focus`.
 - **Programs** (through `exec`, on the space's machine):
@@ -334,9 +404,14 @@ a close button.
     `ls-files --others`, `hash-object`, `merge-tree --write-tree
     --name-only`. Every one uses `--no-optional-locks -c
     core.fsmonitor=false -c diff.autoRefreshIndex=false`.
-  - `gh pr view --json …`, `gh pr checks --json …`, `gh api graphql`
-    (review threads; reply, resolve, unresolve), `gh pr comment`,
+  - `grep -IcH ""` on untracked files, to count their lines without
+    reading them into the script.
+  - `gh pr view --json …`, `gh pr checks --json …`, `gh pr list --state
+    open --limit 100 --json …`, `gh api user`, `gh repo view --json
+    squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed`, `gh api
+    graphql` (review threads; reply, resolve, unresolve), `gh pr comment`,
     `gh run view --job <id> --log-failed`, `gh run rerun <id> --failed`,
+    `gh pr merge <n> --squash|--merge|--rebase --match-head-commit <sha>`,
     `gh pr create --web`.
 - **Checks** come from `gh pr checks --json`, grouped by its `bucket`
   (`fail` and `cancel` count as failing). Run and job ids are parsed from
@@ -377,23 +452,48 @@ a close button.
 - **Forks** aren't handled: the base is `origin/<base>`.
 - **Remote spaces:** `watchFolder` is local only; they rely on timers.
 - The strip is 40px; the review pane wants about 520px of width.
+- **Performance.** Every mod redraw redraws the whole window, and `render`
+  runs on every change to Herdr's live data (agents, focus, shared state).
+  Notify only when what shows changed; write shared state only when its
+  value changed; let a folder-watch burst settle into one refresh; poll a
+  local repo only as a backstop; follow focus in `render`, not on a timer
+  (a slow poll then misses space switches); never read file contents just
+  to count lines; keep hidden panels and panes idle.
+- **Hidden copies.** A mod pane doesn't know its own pane id, so "shown"
+  means a pane of that mod is in the tab on screen. A panel is shown when
+  the `panel` column is open and `panel-body`'s active child is its id.
+  A load started while hidden can be dropped: guard a "loading" flag with
+  a time limit so it can't block forever.
+- **Ship merges for real.** Never test it on a PR that shouldn't merge.
+  `gh pr merge` needs a method flag when not on a terminal.
+- `nextCommand()` gives only the command name, no arguments: keep what the
+  confirm should act on in the strip.
 - Mods run with the person's full permissions. Say before installing that
-  Ship it runs `git`, `gh` and the system URL opener, and that Comment,
-  Reply, Resolve and Re-run write to GitHub.
+  Ship it runs `git`, `grep`, `gh` and the system URL opener, and that
+  Comment, Reply, Resolve, Re-run and Ship write to GitHub.
 
 ## Done when
 
-- `herdr-app check` passes for both mods.
+- `herdr-app check` passes for all five mods.
 - On a feature branch with an open PR, the strip shows "This computer",
-  `~/…/<repo>`, the branch, `#<n>`, the title, **Open**, and check counts
-  that match `gh pr checks`; pending counts are amber, failures red.
+  `~/…/<repo>`, the branch, `#<n>`, **Open** (the title on hover), and
+  check counts that match `gh pr checks`; pending counts are amber,
+  failures red.
 - In a repo without a remote, or on `main` with no PR, the PR group is
   hidden. On a branch without a PR it shows "No pull request · Create".
-- `cd` into another repo, or switching spaces, updates every group,
-  including the Review counts.
+- `cd` into another repo, or switching spaces, updates every group at once,
+  including the PR changes counts.
 - Clicking `#<n>` copies the PR link; the link button opens it.
-- **Review** opens one pane to the right in the tab on screen; a second
-  click focuses it.
+- Clicking the PR's state opens one review pane to the right in the tab on
+  screen; a second click focuses it.
+- **PR changes** opens the panel with the same file count and `+/−` as the
+  button; double-clicking a file opens it in the file pane, and opening
+  another file reuses that pane.
+- **PRs** shows the open-PR count; the panel lists the same PRs as
+  `gh pr list`, the current branch's PR marked; Mine and To review filter.
+- **Ship** is solid on an open, non-draft, conflict-free PR and dim with the
+  reason otherwise; it opens the confirm, and confirming merges (test on a
+  throwaway PR) and turns the button to **Shipped**.
 - Files: the count and `+/−` match `git diff $(git merge-base HEAD
   origin/<base>) --shortstat` plus untracked files.
 - `v` marks a file viewed; editing it clears the mark; marks survive a
@@ -405,4 +505,6 @@ a close button.
 - Checks lists failing, pending, passed and skipped in that order; a
   failed Actions check shows its log tail.
 - With `gh` logged out, the strip still shows machine, folder and branch.
-- The person's layout is unchanged apart from the one `ship-it` block.
+- With the panel closed and the review pane in another tab, no `git` or
+  `gh` process starts for them until they show.
+- The person's layout is unchanged apart from the three blocks.
