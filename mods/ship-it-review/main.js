@@ -7,7 +7,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, v_virtual_list, VirtualListScrollHandle, TextView, TextareaState, Textarea } from "gpui-base";
 import { theme, settings, props, shared, setShared, run, panes, focused, exec, notify, watchFolder, nextCommand } from "herdr";
-import { gitFacts, prFacts, PR_DETAIL, checks, tally, baseRef, threads, conflicts, gql, ago, duration, prLook, reviewLook, tilde, modShown, panelShown } from "./data.js";
+import { gitFacts, prFacts, PR_DETAIL, checks, tally, baseRef, threads, conflicts, gql, ago, duration, prLook, reviewLook, tilde, modShown, panelShown, Recent, sharedPr } from "./data.js";
 import { branchFiles, fileDiff, diffRows, logTail, MAX_FILES } from "./files.js";
 
 const ICON = (name) => `mods/ship-it-review/icons/${name}.svg`;
@@ -43,6 +43,8 @@ export default class Review extends View {
     this.seen = shared("ship-it.target")?.at ?? 0;
     this.tab = p?.tab ?? "overview";
     this.width = 800;
+    // Last facts per repo: going back to one shows them at once while a refresh runs.
+    this.memo = new Recent(12);
     this.reset(p?.root ?? null, p?.on ?? null);
 
     this.composer = TextareaState.new({ placeholder: "Leave a comment" });
@@ -88,12 +90,46 @@ export default class Review extends View {
     // Loads for the last repo finish on their own and are dropped by gen.
     this.gen = (this.gen ?? 0) + 1;
     this.loading = false; this.filesBusy = false; this.diffBusy = false; this.checksBusy = false; this.filesStale = false;
+    this.recall();
+  }
+
+  memoKey() { return `${this.on ?? ""}:${this.root}`; }
+
+  // What this repo showed last time, else the strip's PR for it.
+  recall() {
+    if (!this.root) return;
+    const m = this.memo?.get(this.memoKey());
+    if (m) {
+      Object.assign(this, m); this.loaded = true;
+      if (this.files.length) { this.open = this.files[0].path; this.filesStale = true; }
+      return;
+    }
+    const s = sharedPr(this.root, this.on);
+    if (s) { this.pr = s.kind === "ok" ? { kind: "ok", pr: s.pr } : { kind: s.kind }; this.checks = s.checks; this.threads = s.threads ?? []; this.prAt = s.at; this.loaded = true; }
+  }
+
+  remember() {
+    if (!this.root || !this.memo) return;
+    this.memo.set(this.memoKey(), { git: this.git, pr: this.pr, checks: this.checks, threads: this.threads, prAt: this.prAt, base: this.base, mb: this.mb, files: this.files, limited: this.limited, conflicts: this.conflicts });
+  }
+
+  // The strip's PR facts, when they are for this repo and branch.
+  stripPr() {
+    const s = sharedPr(this.root, this.on);
+    return s && this.git && s.branch === this.git.branch ? s : null;
+  }
+
+  adopt(s) {
+    this.pr = s.kind === "ok" ? { kind: "ok", pr: s.pr } : { kind: s.kind }; this.checks = s.checks; this.threads = s.threads ?? []; this.prAt = s.at;
+    this.mapThreads();
   }
 
   // ---- loading
 
   // Hidden (another tab, another space), it loads nothing until it shows.
-  refresh(cx) {
+  // `force` (r, a posted comment, a reply) asks GitHub even when the strip's
+  // facts are fresh.
+  refresh(cx, force) {
     const root = this.root, on = this.on, gen = this.gen;
     if (root && !this.shown()) { this.stale = true; return; }
     if (!root || this.loading) return;
@@ -113,18 +149,28 @@ export default class Review extends View {
           this.base = early;
           files = this.loadFiles(cx, gen).then(() => cx.notify());
         }
-        const pr = await prFacts(root, on, PR_DETAIL);
+        // The strip asked GitHub under a minute ago: no need to ask again.
+        const strip = this.stripPr();
+        let pr, list, threadList, base;
+        if (!force && strip && Date.now() - strip.at < 60000) {
+          this.adopt(strip); pr = this.pr; list = this.checks; threadList = this.threads;
+          cx.notify();
+          base = await baseRef(root, on, pr.pr);
+        } else {
+          pr = await prFacts(root, on, PR_DETAIL);
+          if (gen !== this.gen) return;
+          this.pr = pr; this.prAt = Date.now();
+          cx.notify();
+          const ok = pr.kind === "ok";
+          [list, threadList, base] = await Promise.all([
+            ok ? checks(root, on) : null,
+            ok ? threads(root, on, pr.pr).catch(() => []) : [],
+            baseRef(root, on, pr.pr),
+          ]);
+        }
         if (gen !== this.gen) return;
-        this.pr = pr;
-        cx.notify();
         const ok = pr.kind === "ok";
-        const [list, threadList, base] = await Promise.all([
-          ok ? checks(root, on) : null,
-          ok ? threads(root, on, pr.pr).catch(() => []) : [],
-          baseRef(root, on, pr.pr),
-        ]);
-        if (gen !== this.gen) return;
-        this.checks = list; this.threads = threadList; this.base = base;
+        this.checks = list; this.threads = threadList; this.base = base; this.mapThreads();
         // Only when GitHub says so: the in-memory merge stores loose objects.
         this.conflicts = ok && (pr.pr.mergeable === "CONFLICTING" || pr.pr.mergeStateStatus === "DIRTY") && base ? await conflicts(root, on, base).catch(() => null) : null;
         if (gen !== this.gen) return;
@@ -133,7 +179,7 @@ export default class Review extends View {
         if (this.tab !== "files") this.filesStale = true;
         else if (!files || base !== early) await this.loadFiles(cx, gen);
       } catch (e) { if (gen === this.gen) this.error = String(e?.message ?? e); }
-      finally { if (gen === this.gen) { this.loading = false; this.loaded = true; } cx.notify(); }
+      finally { if (gen === this.gen) { this.loading = false; this.loaded = true; this.remember(); } cx.notify(); }
     });
   }
 
@@ -186,6 +232,7 @@ export default class Review extends View {
       if (!this.open && !this.closed && files.length) this.open = files[0].path;
       const now = files.find((f) => f.path === this.open);
       if (now && (now.key !== before || this.shows !== now.key)) await this.loadDiff(now, gen);
+      if (gen === this.gen) this.remember();
     } catch (e) { if (gen === this.gen) this.error = String(e?.message ?? e); }
     finally { this.filesBusy = false; }
   }
@@ -285,7 +332,7 @@ export default class Review extends View {
         if (r.code !== 0) throw new Error((r.stderr || r.stdout).trim());
         if (gen === this.gen) { this.comment = ""; this.composer.set_value(""); }
         notify({ title: "Comment posted", body: `#${pr.number}`, level: "success", timeout: 3 });
-        this.refresh(cx);
+        this.refresh(cx, true);
       } catch (e) { notify({ title: "Comment not posted", body: String(e?.message ?? e), level: "error" }); }
       finally { this.posting = null; cx.notify(); }
     });
@@ -379,7 +426,7 @@ export default class Review extends View {
   command(name, cx) {
     const c = String(name).replace(/^ship-it-review[.:]/, "");
     if (c === "overview" || c === "files" || c === "checks") this.tab = c;
-    else if (c === "refresh") this.refresh(cx);
+    else if (c === "refresh") this.refresh(cx, true);
     else if (c.startsWith("file:")) { this.tab = "files"; this.openFile(c.slice(5), cx); }
     else if (c === "next" || c === "prev") { this.tab = "files"; this.step(c === "next" ? 1 : -1, cx); }
     else if (c === "next-unviewed") { this.tab = "files"; this.nextUnviewed(cx); }
@@ -401,7 +448,7 @@ export default class Review extends View {
     const k = e.key, mods = e.modifiers ?? {};
     if (mods.control || mods.platform || mods.alt) return;
     if (k === "1" || k === "2" || k === "3") { this.tab = TABS[+k - 1][0]; cx.notify(); }
-    else if (k === "r") this.refresh(cx);
+    else if (k === "r") this.refresh(cx, true);
     else if (k === "o") this.openUrl(this.pr?.pr?.url, cx);
     else if (k === "escape" && (this.drawer || this.log)) { this.drawer = null; this.log = null; cx.notify(); }
     else if (this.tab === "files") {
@@ -495,7 +542,7 @@ export default class Review extends View {
         .child(div().min_w(0).truncate().child(this.git.branch ?? this.git.sha ?? ""))
         .when(Boolean(this.base), (e) => e.child(div().text_color(t.dim).child("→")).child(div().flex_none().child(this.base.replace(/^origin\//, ""))))))
       .child(div().w(6))
-      .child(this.iconButton("refresh", t, "refresh-cw", "Refresh (r)", (_e, cx) => this.refresh(cx), { spin: this.loading }))
+      .child(this.iconButton("refresh", t, "refresh-cw", "Refresh (r)", (_e, cx) => this.refresh(cx, true), { spin: this.loading }))
       .when(Boolean(pr), (e) => e.child(this.iconButton("open-pr", t, "external-link", "Open on GitHub (o)", (_e, cx) => this.openUrl(pr.url, cx))));
   }
 
@@ -922,6 +969,9 @@ export default class Review extends View {
     const base = this.inPanel ? shared("ship-it.base") : null;
     if (base?.root && (base.root !== this.root || (base.on ?? null) !== this.on)) { this.reset(base.root, base.on ?? null); this.refresh(cx); }
     if (!this.root && props()?.root) { this.reset(props().root, props().on ?? null); this.refresh(cx); }
+    // The strip refreshed this branch's PR: take it (its polling is ours too).
+    const strip = this.loading ? null : this.stripPr();
+    if (strip && strip.at > (this.prAt ?? 0)) this.adopt(strip);
     if (this.stale && this.shown()) this.refresh(cx);
     else if (this.filesStale && this.tab === "files" && !this.loading) this.refreshFiles(cx);
     else if (this.tab === "files" && !this.loading && !this.filesBusy && !this.diffBusy) this.healDiff(cx);

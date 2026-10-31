@@ -284,6 +284,10 @@ a close button.
   every 60 s while shown.
 - **File pane:** follows edits to the file (folder watch, 1.5 s settle);
   remote files reload every 15 s.
+- **Cached:** each mod keeps its last facts for the 12–24 most recent repos
+  or branches (`Recent` in `data.js`) and shows them at once on the way back.
+  The strip asks GitHub again on arrival when they are over 20 s old, and a
+  fetch that finishes after the person left still fills the cache.
 - **Lazy:** a panel that isn't the one showing, and a review or file pane
   in a tab that isn't on screen, does no work: a timer tick or file change
   only marks it stale, and it catches up when it shows.
@@ -388,6 +392,10 @@ a close button.
   when the root matches, and offers **Switch** when it doesn't.
 - **Shared state:** `ship-it.target` (above), `ship-it.base` `{ root, on,
   ref }` (the strip's base, read by the panel and the review pane),
+  `ship-it.pr` `{ root, on, branch, at, kind, pr, checks, threads }` (the
+  strip's pull request with its details, checks and threads: the review
+  uses it while it is under a minute old and adopts each newer one, and asks
+  GitHub itself only on `r` or after posting),
   `ship-it.prs` `{ root, on, count }` (the PR list's count, shown on the
   PRs button), `ship-it.file` `{ root, on, path, at }` (which file the
   file pane shows). Each is written only when its value changes.

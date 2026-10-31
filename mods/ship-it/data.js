@@ -4,7 +4,7 @@
 // mods/ship-it-review/data.js is a copy (a mod can't import from another
 // mod's folder): edit this one and run scripts/install.sh.
 
-import { exec, spaces, panes, focused, home, layout } from "herdr";
+import { exec, spaces, panes, focused, home, layout, shared } from "herdr";
 
 // Reads write nothing under .git (no index refresh or lock, no fsmonitor cookie):
 // a folder watch would see it, and every refresh would start the next one.
@@ -25,6 +25,31 @@ export function location(last) {
   // A mod pane focused first in this space: the tab's first terminal, not the space's starting folder.
   const sibling = pane && !pane.terminal ? panes().find((p) => p.tab === pane.tab && p.terminal && p.cwd) : null;
   return { cwd: pane?.cwd || sibling?.cwd || f?.cwd || space?.folder || null, on, space: space?.id ?? null };
+}
+
+// ---- caches
+//
+// The last facts for each repo or branch, newest kept: going back to a
+// worktree shows them at once while a refresh runs.
+
+export class Recent {
+  constructor(size = 24) { this.size = size; this.map = new Map(); }
+  get(key) {
+    const v = this.map.get(key);
+    if (v !== undefined) { this.map.delete(key); this.map.set(key, v); }
+    return v;
+  }
+  set(key, value) {
+    this.map.delete(key); this.map.set(key, value);
+    if (this.map.size > this.size) this.map.delete(this.map.keys().next().value);
+  }
+}
+
+// The strip's pull request for the repo it shows, so the review needs no gh
+// calls of its own: { root, on, branch, at, kind, pr, checks, threads }.
+export function sharedPr(root, on) {
+  const s = shared("ship-it.pr");
+  return s && s.root === root && (s.on ?? null) === (on ?? null) ? s : null;
 }
 
 // ---- what is on screen, so hidden copies do no work

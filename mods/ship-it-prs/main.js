@@ -6,7 +6,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { exec, shared, setShared, notify, theme } from "herdr";
-import { READ, location, ago, prLook, reviewLook, panelShown } from "./data.js";
+import { READ, location, ago, prLook, reviewLook, panelShown, Recent } from "./data.js";
 
 const ICON = (name) => `mods/ship-it/icons/${name}.svg`;
 const FIELDS = "number,title,author,isDraft,state,url,headRefName,baseRefName,reviewDecision,reviewRequests,updatedAt,additions,deletions,statusCheckRollup";
@@ -28,6 +28,8 @@ const CHECK = { fail: ["circle-x", "ansi1", "Checks failing"], pending: ["circle
 export default class PullRequests extends View {
   init(_p, cx) {
     this.prs = []; this.filter = "all"; this.last = null;
+    // Last list per folder: switching back shows it at once.
+    this.memo = new Recent(12);
     this.refresh(cx);
     cx.timer.every(60000, (cx) => this.refresh(cx));
   }
@@ -45,7 +47,11 @@ export default class PullRequests extends View {
     // A load that never came back (its task dropped) blocks for 30 s at most.
     if (this.loading && !force && Date.now() - this.loading < 30000) return;
     const context = this.key(), { cwd, on } = this.last;
-    if (context !== this.context) { this.context = context; this.root = null; this.prs = []; this.error = null; this.branch = null; }
+    if (context !== this.context) {
+      this.context = context; this.root = null; this.prs = []; this.error = null; this.branch = null;
+      const m = this.memo.get(context);
+      if (m) Object.assign(this, m);
+    }
     if (!cwd) return;
     const started = this.loading = Date.now(); this.stale = false; cx.notify();
     cx.spawn(async (cx) => {
@@ -68,6 +74,7 @@ export default class PullRequests extends View {
         this.root = root; this.on = on; this.me = who; this.branch = branch.stdout.trim() || null;
         this.prs = JSON.parse(list.stdout || "[]").sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
         this.error = null;
+        this.memo.set(context, { root, on, me: who, branch: this.branch, prs: this.prs });
         // Shared state redraws every mod: write it only when it changes.
         const was = shared("ship-it.prs");
         if (was?.root !== root || (was?.on ?? null) !== (on ?? null) || was?.count !== this.prs.length) setShared("ship-it.prs", { root, on: on ?? null, count: this.prs.length });

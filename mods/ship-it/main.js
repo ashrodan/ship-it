@@ -7,7 +7,7 @@
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { theme, run, layout, shared, setShared, panes, focused, watchFolder, notify, exec, openOverlay, nextCommand } from "herdr";
-import { READ, tilde, location, gitFacts, prFacts, checks, threads, tally, baseRef, prLook, reviewLook } from "./data.js";
+import { READ, tilde, location, gitFacts, prFacts, PR_DETAIL, checks, threads, tally, baseRef, prLook, reviewLook, Recent } from "./data.js";
 
 const ICON = (name) => `mods/ship-it/icons/${name}.svg`;
 
@@ -24,6 +24,8 @@ export default class ShipIt extends View {
   init(_props, cx) {
     this.loc = null; this.git = null; this.pr = null; this.checks = null; this.threads = null; this.stat = null;
     this.width = 1200; this.first = true;
+    // Last facts per folder and per branch: a worktree you come back to shows at once.
+    this.gits = new Recent(); this.prs = new Recent();
     this.refreshGit(cx);
     // A local repo's folder watch catches edits, so its poll is only a backstop.
     cx.timer.every(5000, (cx) => { if (this.loc?.on || !this.watched || (this.poll = (this.poll ?? 0) + 1) % 6 === 0) this.refreshGit(cx); });
@@ -40,7 +42,11 @@ export default class ShipIt extends View {
   refreshGit(cx) {
     if (this.gitBusy) return;
     const loc = location(this.loc), key = JSON.stringify([loc.cwd, loc.on]);
-    if (key !== this.locKey) { this.locKey = key; this.loc = loc; this.branchKey = null; this.git = null; this.pr = null; this.checks = null; this.threads = null; this.stat = null; this.first = true; }
+    if (key !== this.locKey) {
+      const known = this.gits.get(key);
+      this.locKey = key; this.loc = loc; this.git = known ?? null; this.first = !known; this.arrived = true;
+      this.restore(known ? this.branchOf(known) : null);
+    }
     if (!loc.cwd) { this.first = false; return; }
     this.gitBusy = true;
     let changed = true;
@@ -48,12 +54,19 @@ export default class ShipIt extends View {
       try {
         const facts = await gitFacts(loc.cwd, loc.on);
         if (key !== this.locKey) return;
-        const was = this.git, branchKey = facts ? `${facts.root}#${facts.branch ?? facts.sha}` : null;
+        const was = this.git, branchKey = facts ? this.branchOf(facts) : null;
+        if (facts) this.gits.set(key, facts);
         // Every redraw redraws the whole window: only notify when something shows differently.
         changed = this.first || JSON.stringify(was) !== JSON.stringify(facts);
         this.git = facts;
         if (facts && !loc.on && this.watched !== facts.root) this.watch(facts.root, cx);
-        if (branchKey !== this.branchKey) { this.branchKey = branchKey; this.pr = null; this.checks = null; this.threads = null; this.stat = null; this.base = null; this.refreshPr(cx); }
+        const arrived = this.arrived, moved = branchKey !== this.branchKey, known = branchKey && this.prs.get(branchKey);
+        this.arrived = false;
+        if (moved) { this.restore(branchKey); changed = true; }
+        // Arriving shares what is known at once; it asks GitHub again for a new
+        // branch, or when what is known is over 20 s old.
+        if (arrived || moved) this.publish();
+        if (branchKey && (moved || !known?.at || (arrived && Date.now() - known.at > 20000))) this.refreshPr(cx);
         else if (facts && (!this.stat || was?.dirty !== facts.dirty || was?.sha !== facts.sha)) this.refreshStat(cx);
       } catch { if (key === this.locKey) this.git = null; }
       finally { this.gitBusy = false; this.first = false; if (changed) cx.notify(); }
@@ -81,18 +94,19 @@ export default class ShipIt extends View {
     this.prBusy = key;
     cx.spawn(async (cx) => {
       try {
-        const pr = await prFacts(g.root, g.on);
+        const pr = await prFacts(g.root, g.on, PR_DETAIL), ok = pr.kind === "ok";
+        if (key === this.branchKey) this.pr = pr;
+        const [list, threadList, base] = await Promise.all([
+          ok ? checks(g.root, g.on) : null,
+          ok ? threads(g.root, g.on, pr.pr).catch(() => []) : [],
+          baseRef(g.root, g.on, pr.pr),
+        ]);
+        // Cached even when the branch was left meanwhile: going back shows it.
+        const entry = { ...this.prs.get(key), pr, checks: list, threads: threadList, base: { ref: base, key }, at: Date.now() };
+        this.prs.set(key, entry);
         if (key !== this.branchKey) return;
-        this.pr = pr;
-        [this.checks, this.threads] = pr.kind === "ok" ? await Promise.all([checks(g.root, g.on), threads(g.root, g.on, pr.pr).catch(() => [])]) : [null, []];
-        if (key !== this.branchKey) return;
-        const base = await baseRef(g.root, g.on, pr.pr);
-        if (key !== this.branchKey) return;
-        this.base = { ref: base, key };
-        // The PR changes panel compares against the same base.
-        // Shared state redraws every mod: write it only when it changes.
-        const now = shared("ship-it.base");
-        if (now?.root !== g.root || (now?.on ?? null) !== (g.on ?? null) || now?.ref !== base) setShared("ship-it.base", { root: g.root, on: g.on ?? null, ref: base });
+        this.pr = pr; this.checks = list; this.threads = threadList; this.base = entry.base;
+        this.publish();
         await this.refreshStat(cx, key);
       } catch (e) { if (key === this.branchKey) this.pr = { kind: "unavailable", reason: String(e) }; }
       finally { if (this.prBusy === key) this.prBusy = null; cx.notify(); }
@@ -119,7 +133,38 @@ export default class ShipIt extends View {
     const stat = { files, add, del, base };
     if (JSON.stringify(stat) === JSON.stringify(this.stat)) return;
     this.stat = stat;
+    this.remember(key);
     cx.notify();
+  }
+
+  branchOf(g) { return `${g.on ?? ""}:${g.root}#${g.branch ?? g.sha}`; }
+
+  // The branch's last PR facts, or nothing: shown until the refresh lands.
+  restore(branchKey) {
+    const c = branchKey ? this.prs.get(branchKey) : null;
+    this.branchKey = branchKey;
+    this.pr = c?.pr ?? null; this.checks = c?.checks ?? null; this.threads = c?.threads ?? null;
+    this.stat = c?.stat ?? null; this.base = c?.base ?? null;
+  }
+
+  // Keeps `at` (when GitHub was last asked): its age decides the next ask on arrival.
+  remember(key) {
+    if (key !== this.branchKey) return;
+    this.prs.set(key, { ...this.prs.get(key), pr: this.pr, checks: this.checks, threads: this.threads, stat: this.stat, base: this.base });
+  }
+
+  // Shares the PR (with its details, checks and threads) and the base with the
+  // panels and the review, so they show it without asking gh again. Shared
+  // state redraws every mod: written only when it changes.
+  publish() {
+    const g = this.git, p = this.pr;
+    if (!g || !p) return;
+    const base = this.base?.key === this.branchKey ? this.base.ref : null, now = shared("ship-it.base");
+    if (base && (now?.root !== g.root || (now?.on ?? null) !== (g.on ?? null) || now?.ref !== base)) setShared("ship-it.base", { root: g.root, on: g.on ?? null, ref: base });
+    const next = { root: g.root, on: g.on ?? null, branch: g.branch, kind: p.kind, pr: p.kind === "ok" ? p.pr : null, checks: this.checks, threads: this.threads };
+    const was = shared("ship-it.pr"), { at, ...old } = was ?? {};
+    if (JSON.stringify(old) !== JSON.stringify(next)) setShared("ship-it.pr", { ...next, at: Date.now() });
+    this.published = Date.now();
   }
 
   panel() {

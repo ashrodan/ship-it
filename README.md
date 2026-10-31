@@ -118,6 +118,10 @@ Herdr redraws the whole window for every mod redraw, so Ship it stays quiet:
 it redraws only when what it shows changes, panels and panes that aren't on
 screen do no work until they are, a burst of file changes becomes one
 refresh, and the review pane reads the diff only when its Files tab shows.
+Each part keeps the last facts for recent repos and branches, so going back
+to a worktree shows them at once while a refresh runs. The strip asks GitHub
+once and shares the pull request with the review, so the review asks again
+only when you refresh or post.
 
 ## Layout of this repo
 

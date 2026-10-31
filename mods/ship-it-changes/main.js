@@ -9,7 +9,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, v_virtual_list } from "gpui-base";
 import { exec, shared, setShared, run, panes, focused, watchFolder, theme, settings } from "herdr";
-import { location, baseRef, panelShown } from "./data.js";
+import { location, baseRef, panelShown, Recent } from "./data.js";
 import { branchFiles, fileDiff, diffRows, MAX_FILES } from "./files.js";
 
 const STATUS = { A: "ansi2", D: "ansi1", U: "ansi1", M: "ansi3" };
@@ -18,6 +18,8 @@ const ICON = (name) => `mods/ship-it/icons/${name}.svg`;
 export default class PrChanges extends View {
   init(_props, cx) {
     this.files = []; this.rows = []; this.diffWidth = 0; this.last = null;
+    // Last list per folder and base: switching back shows it at once.
+    this.memo = new Recent(12);
     this.refresh(cx);
     cx.timer.every(10000, (cx) => this.refresh(cx));
   }
@@ -60,6 +62,8 @@ export default class PrChanges extends View {
     if (context !== this.context) {
       this.context = context; this.root = null; this.files = []; this.open = null; this.base = null;
       this.setLines([]); this.error = null; this.note = null; this.watched = null; this.closed = false; this.limited = false;
+      const m = this.memo.get(context);
+      if (m) Object.assign(this, m);
     }
     if (!cwd) return;
     this.loading = true;
@@ -75,6 +79,7 @@ export default class PrChanges extends View {
         const { mb, files, limited } = await branchFiles(root, on, base);
         if (this.key() !== context) return;
         this.root = root; this.on = on; this.base = base; this.mb = mb; this.files = files; this.limited = limited;
+        this.memo.set(context, { root, on, base, mb, files, limited });
         this.error = mb ? null : `No common history with ${base}`;
         this.watch(root, cx);
         if (this.open && !files.some((f) => f.path === this.open)) { this.open = null; this.setLines([]); }
