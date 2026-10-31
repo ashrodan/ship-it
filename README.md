@@ -5,6 +5,9 @@ merged pull request without leaving your terminals.
 
 ![Ship it](preview.png)
 
+[Watch the 40-second showcase](docs/showcase.mp4): Claude and Codex at work on
+a real pull request, the strip, PR changes, the review, the PR list and Ship.
+
 - **The strip**, under the tab bar, always says where the work is: machine,
   folder, branch (ahead/behind, uncommitted), and the pull request with its
   state, conflicts, checks, open review threads and review decision. It
@@ -94,7 +97,8 @@ review opens as a pane to the right instead.
 `1` `2` `3` tabs · `r` refresh · `o` open on GitHub · `j`/`k` next/previous
 file · `v` viewed · `n` next unviewed · `e` open the file · `⌘↵` post ·
 `esc` close a drawer or log. Bindable as commands too
-(`ship-it-review.files`, `ship-it-review.next-unviewed`, …).
+(`ship-it-review.files`, `ship-it-review.next-unviewed`, …). The PRs panel
+has `ship-it-prs.more`, `.refresh`, `.all`, `.mine` and `.review`.
 
 ## What it does on your behalf
 

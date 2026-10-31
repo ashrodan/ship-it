@@ -110,6 +110,8 @@ A side panel in the same stack, framed like Herdr's panels (radius 10, 1px
   button (1px `border`, radius 7, `muted`) ends the list and asks for the
   next 10 ("Loading…" meanwhile). A long list made one heavy query that
   GitHub sometimes answered with a 504.
+- Commands, for keys: `ship-it-prs.more`, `ship-it-prs.refresh`,
+  `ship-it-prs.all`, `ship-it-prs.mine`, `ship-it-prs.review`.
 - Rows (7px vertical padding, radius 7, `hover` fill), newest update first:
   - line 1: the state icon (green open, `muted` draft), the title in
     `foreground`, truncated, and a checks icon on the right (`circle-x` red,

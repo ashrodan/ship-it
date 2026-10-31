@@ -5,7 +5,7 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { exec, shared, setShared, notify, theme } from "herdr";
+import { exec, shared, setShared, notify, theme, nextCommand } from "herdr";
 import { READ, location, ago, prLook, reviewLook, panelShown, Recent } from "./data.js";
 
 const ICON = (name) => `mods/ship-it/icons/${name}.svg`;
@@ -35,6 +35,15 @@ export default class PullRequests extends View {
     this.memo = new Recent(12);
     this.refresh(cx);
     cx.timer.every(60000, (cx) => this.refresh(cx));
+    cx.spawn(async (cx) => { for (;;) { this.command(await nextCommand(), cx); cx.notify(); } });
+  }
+
+  // ship-it-prs.more, .refresh, .all, .mine, .review: bindable to keys.
+  command(name, cx) {
+    const c = String(name).replace(/^ship-it-prs[.:]/, "");
+    if (c === "more") { if (this.more) this.loadMore(cx); }
+    else if (c === "refresh") this.refresh(cx, true);
+    else if (SEARCH[c]) this.pick(c, cx);
   }
 
   key() {
