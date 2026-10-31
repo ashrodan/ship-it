@@ -123,6 +123,9 @@ to a worktree shows them at once while a refresh runs. The strip asks GitHub
 once and shares the pull request with the review, so the review asks again
 only when you refresh or post.
 
+If the whole Herdr window stalls, see `docs/performance.md`: the cause found
+so far is in Herdr's JavaScript JIT, with measurements and next steps.
+
 ## Layout of this repo
 
 - `mods/ship-it/`: the strip, and `data.js` (git and GitHub facts, shared).
@@ -133,6 +136,8 @@ only when you refresh or post.
   into the mods that use them (a mod can't import from another), installs
   and checks the mods, and with `--layout` runs `scripts/add-to-layout.py`.
   `--sync` only refreshes the copies.
+- `scripts/perf/`: the window-stall check (`run.sh`).
+- `docs/performance.md`: the stall investigation and its next steps.
 - `RECIPE.md`: the full spec, detailed enough for an agent to rebuild it.
 
 ## Credits
