@@ -135,10 +135,20 @@ export default class ShipIt extends View {
     else { run("layout.select", { stack: "panel-body", child: id }); run("layout.show", { id: "panel" }); }
   }
 
-  // The review pane: this tab's if it has one, else a new one to the right.
+  // The review: in the side panel when the layout has a ship-it-review block
+  // (a second click on the same tab closes it), else this tab's review pane,
+  // else a new one to the right.
   openReview(tab) {
-    const g = this.git, f = focused();
-    if (!g || !f) return;
+    const g = this.git, f = focused(), p = this.panel();
+    if (!g) return;
+    if (p.has("ship-it-review")) {
+      const now = shared("ship-it.target");
+      if (p.open("ship-it-review") && now?.tab === tab && now?.root === g.root) { run("layout.hide", { id: "panel" }); return; }
+      setShared("ship-it.target", { root: g.root, on: g.on, tab, at: Date.now() });
+      run("layout.select", { stack: "panel-body", child: "ship-it-review" }); run("layout.show", { id: "panel" });
+      return;
+    }
+    if (!f) return;
     setShared("ship-it.target", { root: g.root, on: g.on, tab, at: Date.now() });
     const existing = panes().find((p) => p.mod === "ship-it-review" && p.tab === f.tab);
     if (existing) { run("pane.focus", { pane: existing.pane }); return; }

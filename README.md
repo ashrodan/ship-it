@@ -15,7 +15,8 @@ merged pull request without leaving your terminals.
 - **PRs** lists the repo's open pull requests (All, Mine, To review).
 - **Ship** merges the pull request, after a confirm that says how, into what,
   and what still looks wrong (failing checks, no approval, open threads).
-- **The review pane** (click the PR on the strip) has three tabs:
+- **The review** (click the PR on the strip) opens in the side panel, like
+  PR changes, and has three tabs:
   **Overview** (description, conversation, conflicts with a copyable list,
   open threads, a comment box), **Files** (the diff, "viewed" marks, inline
   threads with Reply and Resolve) and **Checks** (failing first, the failed
@@ -32,7 +33,7 @@ Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/ashrod
 ```
 
 It follows the "Layouts and mods other people made" steps there, and
-`RECIPE.md` says which three blocks go into your layout.
+`RECIPE.md` says which four blocks go into your layout.
 
 ### Or install it yourself
 
@@ -42,8 +43,8 @@ scripts/install.sh --layout my-main   # your layout: herdr-app status shows its 
 herdr-app do layout.switch --name my-main
 ```
 
-`--layout` adds the strip under the tab bar and the two panels next to Files
-and Changes, once, after backing the file up to `<name>.json.before-ship-it`.
+`--layout` adds the strip under the tab bar and the three panels next to
+Files and Changes, once, after backing the file up to `<name>.json.before-ship-it`.
 Herdr's own layouts (`main`, `terminals`, `win98`) are read-only, so clone
 one first:
 
@@ -76,14 +77,16 @@ Without `--layout`, the script only installs the mods; add the blocks by hand
    { "id": "ship-it", "type": "block", "size": { "px": 40 }, "content": { "mod": "ship-it" } }
    ```
 
-2. Two panels, as children of the `panel-body` stack after `changes`:
+2. Three panels, as children of the `panel-body` stack after `changes`:
 
    ```json
    { "id": "ship-it-changes", "type": "block", "content": { "mod": "ship-it-changes" } },
+   { "id": "ship-it-review", "type": "block", "content": { "mod": "ship-it-review" } },
    { "id": "ship-it-prs", "type": "block", "content": { "mod": "ship-it-prs" } }
    ```
 
-Without the panel blocks, the PR changes and PRs buttons hide.
+Without the panel blocks, the PR changes and PRs buttons hide, and the
+review opens as a pane to the right instead.
 
 ## Keys (review pane)
 
@@ -119,7 +122,7 @@ refresh, and the review pane reads the diff only when its Files tab shows.
 ## Layout of this repo
 
 - `mods/ship-it/`: the strip, and `data.js` (git and GitHub facts, shared).
-- `mods/ship-it-review/`: the review pane, and `files.js` (the branch diff).
+- `mods/ship-it-review/`: the review (a panel, or a pane), and `files.js` (the branch diff).
 - `mods/ship-it-changes/`, `mods/ship-it-prs/`: the two panels.
 - `mods/ship-it-file/`: the read-only file pane.
 - `scripts/install.sh`: copies the shared `data.js`, `files.js` and icons

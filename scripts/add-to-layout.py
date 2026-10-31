@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
-"""Adds Ship it's three blocks to a Herdr layout, once.
+"""Adds Ship it's four blocks to a Herdr layout, once.
 
     scripts/add-to-layout.py <layouts/name.json>
 
 - The strip (`ship-it`, 40px) goes right after the tab bar (the block that
   shows the `tabs` mod), in the same column.
-- The PR changes and Pull requests panels go into the `panel-body` stack,
+- The PR changes, review and Pull requests panels go into the `panel-body` stack,
   after `changes`.
 
 Blocks that are already there are left alone. The file is backed up to
-<name>.json.before-ship-it first. Nothing else in the layout changes.
+<name>.json.before-ship-it first (only the first time, so it stays the
+layout from before Ship it). Nothing else in the layout changes.
 """
-import json, shutil, sys
+import json, os, shutil, sys
 
 STRIP = {"id": "ship-it", "type": "block", "size": {"px": 40}, "content": {"mod": "ship-it"}}
 PANELS = [
     {"id": "ship-it-changes", "type": "block", "content": {"mod": "ship-it-changes"}},
+    {"id": "ship-it-review", "type": "block", "content": {"mod": "ship-it-review"}},
     {"id": "ship-it-prs", "type": "block", "content": {"mod": "ship-it-prs"}},
 ]
 
@@ -46,7 +48,7 @@ def main(path):
 
     body = next((n for n, _ in nodes if n.get("id") == "panel-body"), None)
     if not body:
-        print("  panels: no 'panel-body' stack found; PR changes and PRs will hide")
+        print("  panels: no 'panel-body' stack found; PR changes and PRs will hide, and the review opens as a pane")
     else:
         kids = body.setdefault("children", [])
         at = next((i + 1 for i, c in enumerate(kids) if c.get("id") == "changes"), len(kids))
@@ -59,7 +61,9 @@ def main(path):
     if not done:
         print("  layout already has Ship it's blocks")
         return
-    shutil.copyfile(path, path + ".before-ship-it")
+    # The first backup is the layout before Ship it: never overwrite it.
+    if not os.path.exists(path + ".before-ship-it"):
+        shutil.copyfile(path, path + ".before-ship-it")
     with open(path, "w") as f:
         json.dump(layout, f, indent=2)
         f.write("\n")

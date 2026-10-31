@@ -7,7 +7,8 @@ review state. Three buttons take you from there to shipping it: **PR changes**
 (what the branch changes since its base, in the side panel; double-click a
 file to open it whole in a pane), **PRs** (the repo's open pull requests)
 and **Ship** (merges the PR, after a confirm). The PR's state, checks and
-threads open the review pane beside your terminals, with three tabs: **Overview** (the
+threads open the review in the side panel (a pane to the right when the
+layout has no review panel), with three tabs: **Overview** (the
 description, the conversation and a comment box), **Files** (every change
 since the base, "viewed" marks, inline review threads) and **Checks**
 (failing first, the failed log's tail, re-run).
@@ -129,9 +130,12 @@ Herdr's own `confirm` dialog, 420 × 200: "Ship #720?" and "Squash and merge
 `head` into `base`. Note: 2 checks failing, not approved yet, 1 open thread.
 The branch stays." (the Note only lists what applies).
 
-### The review pane (`ship-it-review`)
+### The review (`ship-it-review`)
 
-A mod pane, framed like any pane. Text 13px in the UI font, background
+A side panel in the `panel-body` stack, like PR changes; in a layout
+without that block, a mod pane framed like any pane. As a panel (no props)
+it follows the strip's repo (`ship-it.base`) and switches to a newer
+`ship-it.target` without offering; as a pane it keeps its repo. Text 13px in the UI font, background
 `background`.
 
 - **Header**, 42px, `chrome`, `border` line below. Three text tabs,
@@ -262,8 +266,10 @@ a close button.
     threads), then `gh pr merge <n> --squash|--merge|--rebase
     --match-head-commit <sha>` (the first method the repo allows). A push
     after the dialog opened makes GitHub refuse. The branch is not deleted.
-  - Opening the review pane focuses this tab's pane if one exists, else
-    splits one to the right of a pane in the tab on screen.
+  - Opening the review selects and shows the `ship-it-review` panel (a
+    second click on the same tab hides the panel). Without that block it
+    focuses this tab's review pane if one exists, else splits one to the
+    right of a pane in the tab on screen.
 - **Agent status** (working, blocked, done, idle) does not show anywhere in
   Ship it; Herdr's own agents list and pane headers show it.
 
@@ -339,7 +345,7 @@ a close button.
   `data.js`, `files.js` and icons are already copied in, so
   `scripts/install.sh` is optional. The panels and the file pane draw icons
   from `mods/ship-it/icons/`: if `ship-it` must be renamed, change those
-  paths too. Then add the three layout blocks below and `herdr-app check`
+  paths too. Then add the four layout blocks below and `herdr-app check`
   each mod. `gh` must be installed and logged in for the PR parts.
 - **Five mods**, no layout of their own:
   - `mods/ship-it/`: `main.js` (the strip), `data.js` (git and GitHub
@@ -356,23 +362,25 @@ a close button.
   - `scripts/install.sh` copies `data.js`, `files.js` and `icons/` into
     the mods that use them (a mod can't import from another mod's folder),
     installs the five into `${HERDR_APP_HOME:-~/.config/herdr-app}/mods/`
-    and checks them; `--layout <name>` then adds the three blocks with
+    and checks them; `--layout <name>` then adds the four blocks with
     `scripts/add-to-layout.py` (once, with a backup; it refuses Herdr's
     read-only `main`, `terminals` and `win98`). `--sync` only refreshes
     the copies.
 - **Layout change**, in the person's own layout (clone a shipped one
   first): one block in the work column, between the tab bar and the pane
-  area, and one child in the `panel-body` stack, after `changes`. Nothing
+  area, and three children in the `panel-body` stack, after `changes`. Nothing
   else changes.
 
   ```json
   { "id": "ship-it", "type": "block", "size": { "px": 40 }, "content": { "mod": "ship-it" } }
   { "id": "ship-it-changes", "type": "block", "content": { "mod": "ship-it-changes" } }
+  { "id": "ship-it-review", "type": "block", "content": { "mod": "ship-it-review" } }
   { "id": "ship-it-prs", "type": "block", "content": { "mod": "ship-it-prs" } }
   ```
 
   The buttons need the shipped `panel` column and `panel-body` stack: PR
-  changes and PRs hide without their children, and the folder click needs
+  changes and PRs hide without their children, the review falls back to a
+  pane, and the folder click needs
   `files`.
 - **The pane's props:** `{ root, on, tab }` (repo root, machine, first tab).
   The strip also sets `shared("ship-it.target") = { root, on, tab, at }`
@@ -484,8 +492,9 @@ a close button.
 - `cd` into another repo, or switching spaces, updates every group at once,
   including the PR changes counts.
 - Clicking `#<n>` copies the PR link; the link button opens it.
-- Clicking the PR's state opens one review pane to the right in the tab on
-  screen; a second click focuses it.
+- Clicking the PR's state opens the review in the side panel; a second
+  click hides it. Without the review block, it opens one review pane to
+  the right in the tab on screen, and a second click focuses it.
 - **PR changes** opens the panel with the same file count and `+/−` as the
   button; double-clicking a file opens it in the file pane, and opening
   another file reuses that pane.
@@ -507,4 +516,4 @@ a close button.
 - With `gh` logged out, the strip still shows machine, folder and branch.
 - With the panel closed and the review pane in another tab, no `git` or
   `gh` process starts for them until they show.
-- The person's layout is unchanged apart from the three blocks.
+- The person's layout is unchanged apart from the four blocks.

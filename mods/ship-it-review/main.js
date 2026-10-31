@@ -7,7 +7,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, v_virtual_list, VirtualListScrollHandle, TextView, TextareaState, Textarea } from "gpui-base";
 import { theme, settings, props, shared, setShared, run, panes, focused, exec, notify, watchFolder, nextCommand } from "herdr";
-import { gitFacts, prFacts, PR_DETAIL, checks, tally, baseRef, threads, conflicts, gql, ago, duration, prLook, reviewLook, tilde, modShown } from "./data.js";
+import { gitFacts, prFacts, PR_DETAIL, checks, tally, baseRef, threads, conflicts, gql, ago, duration, prLook, reviewLook, tilde, modShown, panelShown } from "./data.js";
 import { branchFiles, fileDiff, diffRows, logTail, MAX_FILES } from "./files.js";
 
 const ICON = (name) => `mods/ship-it-review/icons/${name}.svg`;
@@ -33,6 +33,9 @@ const store = {
 export default class Review extends View {
   init(_p, cx) {
     const p = props() ?? _p;
+    // In the side panel (a layout block, no props) it follows the strip's repo;
+    // as a pane it keeps the repo it was opened on.
+    this.inPanel = !p?.root;
     this.handle = cx.focus_handle();
     this.diffScroll = VirtualListScrollHandle.new();
     this.fileScroll = VirtualListScrollHandle.new();
@@ -77,14 +80,14 @@ export default class Review extends View {
   reset(root, on) {
     this.root = root; this.on = on;
     this.git = null; this.pr = null; this.checks = null; this.threads = []; this.base = null; this.mb = null;
-    this.files = []; this.limited = false; this.open = null; this.closed = false; this.rows = []; this.rowThreads = new Map();
+    this.files = []; this.limited = false; this.open = null; this.closed = false; this.rows = []; this.shows = null; this.rowThreads = new Map();
     this.diffWidth = 0; this.cut = false; this.note = null; this.error = null;
     this.drawer = null; this.log = null; this.watched = null; this.loaded = false; this.checkIndex = -1; this.conflicts = null; this.offer = null;
     this.viewedKey = root ? `viewed:${on ?? ""}:${root}` : null;
     this.viewed = this.viewedKey ? store.get(this.viewedKey) : {};
     // Loads for the last repo finish on their own and are dropped by gen.
     this.gen = (this.gen ?? 0) + 1;
-    this.loading = false; this.filesBusy = false; this.checksBusy = false; this.filesStale = false;
+    this.loading = false; this.filesBusy = false; this.diffBusy = false; this.checksBusy = false; this.filesStale = false;
   }
 
   // ---- loading
@@ -144,7 +147,7 @@ export default class Review extends View {
     });
   }
 
-  shown() { return modShown("ship-it-review"); }
+  shown() { return this.inPanel ? panelShown("ship-it-review") : modShown("ship-it-review"); }
 
   // Files load when the Files tab shows (Overview and Checks don't need them);
   // hidden or on another tab, a change only marks them stale.
@@ -182,23 +185,35 @@ export default class Review extends View {
       if (this.open && !files.some((f) => f.path === this.open)) { this.open = null; this.setRows([]); }
       if (!this.open && !this.closed && files.length) this.open = files[0].path;
       const now = files.find((f) => f.path === this.open);
-      if (now && (now.key !== before || !this.rows.length)) await this.loadDiff(now, gen);
+      if (now && (now.key !== before || this.shows !== now.key)) await this.loadDiff(now, gen);
     } catch (e) { if (gen === this.gen) this.error = String(e?.message ?? e); }
     finally { this.filesBusy = false; }
   }
 
   async loadDiff(file, gen) {
+    this.diffBusy = true;
     try {
       const { lines, cut } = await fileDiff(this.root, this.on, this.mb, file);
       if (gen !== this.gen || this.open !== file.path) return;
-      this.setRows(lines); this.cut = cut;
+      if (this.shows !== file.key) this.diffScroll.scroll_to_item(0);
+      this.setRows(lines); this.cut = cut; this.shows = file.key;
     } catch (e) {
-      if (gen === this.gen && this.open === file.path) { this.setRows([]); this.note = `Cannot show this diff: ${e?.message ?? e}`; }
-    }
+      if (gen === this.gen && this.open === file.path) { this.setRows([]); this.shows = file.key; this.note = `Cannot show this diff: ${e?.message ?? e}`; }
+    } finally { this.diffBusy = false; }
+  }
+
+  // this.shows: the key of the file the rows are for (null: none yet).
+  // The open file without its diff (a load that lost a race, or one skipped
+  // while hidden) loads it now.
+  healDiff(cx) {
+    const file = this.open && this.files.find((f) => f.path === this.open);
+    if (!file || this.shows === file.key || !this.shown()) return;
+    const gen = this.gen;
+    cx.spawn(async (cx) => { await this.loadDiff(file, gen); cx.notify(); });
   }
 
   setRows(lines) {
-    this.rows = diffRows(lines); this.note = null; this.cut = false;
+    this.rows = diffRows(lines); this.note = null; this.cut = false; this.shows = null;
     this.diffWidth = Math.max(320, ...this.rows.map((r) => r.text.length * 6.7 + 130));
     this.mapThreads();
   }
@@ -219,7 +234,7 @@ export default class Review extends View {
     this.open = this.open === path ? null : path; this.closed = !this.open; this.drawer = null;
     this.setRows([]);
     const file = this.files.find((f) => f.path === path), gen = this.gen;
-    if (this.open && file) cx.spawn(async (cx) => { await this.loadDiff(file, gen); cx.notify(); });
+    if (this.open && file) { this.diffBusy = true; cx.spawn(async (cx) => { await this.loadDiff(file, gen); cx.notify(); }); }
     cx.notify();
   }
 
@@ -901,15 +916,18 @@ export default class Review extends View {
       // A pane can't tell whether it is the one the strip meant (props carry
       // no pane id), so another repo is offered, never switched to silently.
       if (!target.root || (target.root === this.root && (target.on ?? null) === this.on)) { if (target.tab) this.tab = target.tab; this.offer = null; }
-      else if (this.root) this.offer = target;
+      else if (this.root && !this.inPanel) this.offer = target;
       else { this.reset(target.root, target.on ?? null); if (target.tab) this.tab = target.tab; this.refresh(cx); }
     }
+    const base = this.inPanel ? shared("ship-it.base") : null;
+    if (base?.root && (base.root !== this.root || (base.on ?? null) !== this.on)) { this.reset(base.root, base.on ?? null); this.refresh(cx); }
     if (!this.root && props()?.root) { this.reset(props().root, props().on ?? null); this.refresh(cx); }
     if (this.stale && this.shown()) this.refresh(cx);
     else if (this.filesStale && this.tab === "files" && !this.loading) this.refreshFiles(cx);
+    else if (this.tab === "files" && !this.loading && !this.filesBusy && !this.diffBusy) this.healDiff(cx);
     const t = theme();
     const content = !this.root
-      ? this.empty(t, "rocket", "Nothing to review", "Open this pane from the Review button on the Ship it strip.")
+      ? this.empty(t, "rocket", "Nothing to review", "Click the pull request on the Ship it strip.")
       : this.tab === "files" ? this.filesTab(t) : this.tab === "checks" ? this.checksTab(t) : this.overview(t);
     return v_flex().id("ship-it-review").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(13)
       .track_focus(this.handle).on_key_down((e, cx) => this.key(e, cx))
