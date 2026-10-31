@@ -5,8 +5,10 @@ merged pull request without leaving your terminals.
 
 ![Ship it](preview.png)
 
-[Watch the 40-second showcase](docs/showcase.mp4): Claude and Codex at work on
-a real pull request, the strip, PR changes, the review, the PR list and Ship.
+https://github.com/user-attachments/assets/5e31d154-aa5b-4854-af67-2ddc534e9a19
+
+The 40-second showcase: Claude and Codex at work on a real pull request, the
+strip, PR changes, the review, the PR list and Ship.
 
 - **The strip**, under the tab bar, always says where the work is: machine,
   folder, branch (ahead/behind, uncommitted), and the pull request with its
