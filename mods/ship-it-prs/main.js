@@ -11,7 +11,10 @@ import { READ, location, ago, prLook, reviewLook, panelShown, Recent } from "./d
 const ICON = (name) => `mods/ship-it/icons/${name}.svg`;
 const FIELDS = "number,title,author,isDraft,state,url,headRefName,baseRefName,reviewDecision,reviewRequests,updatedAt,additions,deletions,statusCheckRollup";
 const FILTERS = [["all", "All"], ["mine", "Mine"], ["review", "To review"]];
-const logins = {};
+const SEARCH = { all: "sort:updated-desc", mine: "author:@me sort:updated-desc", review: "review-requested:@me sort:updated-desc" };
+const PAGE = 10;
+// All open PRs, counted without fetching them (gh fills in {owner} and {repo}).
+const TOTAL = "query($owner:String!,$name:String!){repository(owner:$owner,name:$name){pullRequests(states:OPEN){totalCount}}}";
 
 // One word for a PR's checks: "fail", "pending", "pass" or null (none).
 function checkState(rollup) {
@@ -27,7 +30,7 @@ const CHECK = { fail: ["circle-x", "ansi1", "Checks failing"], pending: ["circle
 
 export default class PullRequests extends View {
   init(_p, cx) {
-    this.prs = []; this.filter = "all"; this.last = null;
+    this.prs = []; this.filter = "all"; this.last = null; this.limit = PAGE;
     // Last list per folder: switching back shows it at once.
     this.memo = new Recent(12);
     this.refresh(cx);
@@ -47,12 +50,9 @@ export default class PullRequests extends View {
     // A load that never came back (its task dropped) blocks for 30 s at most.
     if (this.loading && !force && Date.now() - this.loading < 30000) return;
     const context = this.key(), { cwd, on } = this.last;
-    if (context !== this.context) {
-      this.context = context; this.root = null; this.prs = []; this.error = null; this.branch = null;
-      const m = this.memo.get(context);
-      if (m) Object.assign(this, m);
-    }
+    if (context !== this.context) { this.context = context; this.limit = PAGE; this.recall(); }
     if (!cwd) return;
+    const filter = this.filter, limit = this.limit, memo = this.memoKey();
     const started = this.loading = Date.now(); this.stale = false; cx.notify();
     cx.spawn(async (cx) => {
       try {
@@ -60,34 +60,54 @@ export default class PullRequests extends View {
         if (this.key() !== context) return;
         if (top.code !== 0) { this.error = "Not a git repository"; return; }
         const root = top.stdout.trim();
-        const [list, branch] = await Promise.all([
-          exec("gh", ["pr", "list", "--state", "open", "--limit", "100", "--json", FIELDS], { cwd: root, on }),
+        // The newest by update, a page at a time; the filters are GitHub searches,
+        // so Mine and To review aren't limited to the page already loaded.
+        const [list, total, branch] = await Promise.all([
+          exec("gh", ["pr", "list", "--state", "open", "--limit", String(limit), "--search", SEARCH[filter], "--json", FIELDS], { cwd: root, on }),
+          exec("gh", ["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-f", `query=${TOTAL}`, "--jq", ".data.repository.pullRequests.totalCount"], { cwd: root, on }).catch(() => null),
           exec("git", [...READ, "branch", "--show-current"], { cwd: root, on }),
         ]);
-        const who = on in logins ? logins[on] : (logins[on] = await exec("gh", ["api", "user", "--jq", ".login"], { on }).then((r) => r.stdout.trim() || null).catch(() => null));
-        if (this.key() !== context) return;
+        if (this.key() !== context || this.filter !== filter) return;
         if (list.code !== 0) {
           const err = (list.stderr || "").toLowerCase();
           this.error = err.includes("no git remote") || err.includes("no default remote") ? "No GitHub remote" : err.includes("auth") ? "gh is not logged in" : (list.stderr || "gh failed").trim().split("\n")[0];
           this.root = root; this.prs = []; return;
         }
-        this.root = root; this.on = on; this.me = who; this.branch = branch.stdout.trim() || null;
-        this.prs = JSON.parse(list.stdout || "[]").sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+        this.root = root; this.on = on; this.branch = branch.stdout.trim() || null;
+        this.prs = JSON.parse(list.stdout || "[]");
+        this.more = this.prs.length >= limit;
+        const n = Number(total?.stdout?.trim());
+        if (total?.code === 0 && total.stdout.trim() && Number.isFinite(n)) this.total = n;
         this.error = null;
-        this.memo.set(context, { root, on, me: who, branch: this.branch, prs: this.prs });
+        this.memo.set(memo, { root, on, branch: this.branch, prs: this.prs, more: this.more, total: this.total, limit });
         // Shared state redraws every mod: write it only when it changes.
-        const was = shared("ship-it.prs");
-        if (was?.root !== root || (was?.on ?? null) !== (on ?? null) || was?.count !== this.prs.length) setShared("ship-it.prs", { root, on: on ?? null, count: this.prs.length });
+        const count = this.total ?? this.prs.length, was = shared("ship-it.prs");
+        if (was?.root !== root || (was?.on ?? null) !== (on ?? null) || was?.count !== count) setShared("ship-it.prs", { root, on: on ?? null, count });
       } catch (e) { if (this.key() === context) this.error = String(e); }
       finally { if (this.loading === started) this.loading = 0; cx.notify(); }
     });
   }
 
-  shown() {
-    const me = this.me;
-    if (this.filter === "mine") return this.prs.filter((p) => p.author?.login === me);
-    if (this.filter === "review") return this.prs.filter((p) => (p.reviewRequests ?? []).some((r) => r.login === me));
-    return this.prs;
+  memoKey() { return `${this.context}#${this.filter}`; }
+
+  // This folder and filter's last list, or nothing: shown while it loads.
+  recall() {
+    this.root = null; this.prs = []; this.error = null; this.branch = null; this.more = false; this.total = null;
+    const m = this.memo.get(this.memoKey());
+    if (m) Object.assign(this, m);
+  }
+
+  pick(filter, cx) {
+    if (filter === this.filter) return;
+    const total = this.total;
+    this.filter = filter; this.limit = PAGE; this.recall(); this.total ??= total;
+    this.refresh(cx, true);
+  }
+
+  loadMore(cx) {
+    if (this.loading) return;
+    this.limit = this.prs.length + PAGE;
+    this.refresh(cx, true);
   }
 
   icon(name, color, size = 14) { return svg(ICON(name)).size(size).flex_none().text_color(color); }
@@ -117,12 +137,12 @@ export default class PullRequests extends View {
 
   render(cx) {
     if (this.shown() && (this.stale || this.key() !== this.context)) this.refresh(cx);
-    const t = theme(), list = this.shown();
+    const t = theme(), list = this.prs;
     const empty = this.error || (this.loading ? "Loading pull requests…" : this.filter === "all" ? "No open pull requests" : this.filter === "mine" ? "No open pull requests of yours" : "Nothing waiting for your review");
     return v_flex().id("ship-it-prs").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13)
       .child(h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
         .child(div().font_semibold().whitespace_nowrap().child("Pull requests"))
-        .child(div().px(5).py(1).rounded(4).border_1().border_color(t.border).text_size(10).text_color(t.muted).whitespace_nowrap().child(`${this.prs.length} open`))
+        .child(div().px(5).py(1).rounded(4).border_1().border_color(t.border).text_size(10).text_color(t.muted).whitespace_nowrap().child(`${this.total ?? this.prs.length} open`))
         .child(div().flex_1())
         .child(div().id("prs-refresh").size(22).flex_none().flex().items_center().justify_center().rounded(5).cursor_pointer().hover((s) => s.bg(t.hover)).tooltip("Refresh")
           .on_click((_e, cx) => this.refresh(cx, true)).child(this.icon(this.loading ? "loader" : "refresh-cw", t.dim, 12))))
@@ -130,10 +150,13 @@ export default class PullRequests extends View {
         const on = this.filter === id;
         return div().id(`prs-filter-${id}`).h(24).px(9).flex().items_center().rounded(6).cursor_pointer().text_size(12)
           .when(on, (e) => e.bg(t.selected).text_color(t.foreground)).when(!on, (e) => e.text_color(t.muted).hover((s) => s.bg(t.hover)))
-          .on_click((_e, cx) => { this.filter = id; cx.notify(); }).child(label);
+          .on_click((_e, cx) => this.pick(id, cx)).child(label);
       })))
       .child(v_flex().id("prs-list").flex_1().min_h(0).overflow_y_scrollbar().p(6).gap(2)
         .children(list.map((pr) => this.row(pr, t)))
+        .when(this.more && list.length > 0, (e) => e.child(div().id("prs-more").mx(4).my(6).h(28).flex_none().flex().items_center().justify_center().rounded(7)
+          .border_1().border_color(t.border).text_size(12).text_color(t.muted).cursor_pointer().hover((s) => s.bg(t.hover))
+          .on_click((_e, cx) => this.loadMore(cx)).child(this.loading ? "Loading…" : `Load ${PAGE} more`)))
         .when(!list.length, (e) => e.child(div().p(8).text_color(t.dim).child(empty))));
   }
 }

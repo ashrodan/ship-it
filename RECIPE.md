@@ -98,11 +98,18 @@ pane's Files view has the same as an **Open** button and `e`:
 A side panel in the same stack, framed like Herdr's panels (radius 10, 1px
 `border`, `background`), text 13px:
 
-- Header, 42px: "Pull requests" semibold, an `n open` chip (10px, 1px
-  `border`, radius 4, `muted`), and on the right a 22px refresh button.
+- Header, 42px: "Pull requests" semibold, an `n open` chip with the repo's
+  total open count (10px, 1px `border`, radius 4, `muted`), and on the right
+  a 22px refresh button.
 - Filters, a row of three 24px segments: **All**, **Mine**, **To review**.
   The chosen one has the `selected` fill and `foreground` text; the others
-  are `muted`.
+  are `muted`. Each is a GitHub search, not a filter of the loaded rows:
+  `sort:updated-desc`, `author:@me sort:updated-desc`,
+  `review-requested:@me sort:updated-desc`.
+- 10 rows at first. While GitHub may have more, a 28px **Load 10 more**
+  button (1px `border`, radius 7, `muted`) ends the list and asks for the
+  next 10 ("Loading…" meanwhile). A long list made one heavy query that
+  GitHub sometimes answered with a 504.
 - Rows (7px vertical padding, radius 7, `hover` fill), newest update first:
   - line 1: the state icon (green open, `muted` draft), the title in
     `foreground`, truncated, and a checks icon on the right (`circle-x` red,
@@ -423,7 +430,8 @@ a close button.
   - `grep -IcH ""` on untracked files, to count their lines without
     reading them into the script.
   - `gh pr view --json …`, `gh pr checks --json …`, `gh pr list --state
-    open --limit 100 --json …`, `gh api user`, `gh repo view --json
+    open --limit 10 --search … --json …` (more on Load more), `gh api
+    graphql` (the open total, `totalCount`), `gh repo view --json
     squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed`, `gh api
     graphql` (review threads; reply, resolve, unresolve), `gh pr comment`,
     `gh run view --job <id> --log-failed`, `gh run rerun <id> --failed`,
@@ -506,8 +514,9 @@ a close button.
 - **PR changes** opens the panel with the same file count and `+/−` as the
   button; double-clicking a file opens it in the file pane, and opening
   another file reuses that pane.
-- **PRs** shows the open-PR count; the panel lists the same PRs as
-  `gh pr list`, the current branch's PR marked; Mine and To review filter.
+- **PRs** shows the open-PR total; the panel lists the 10 most recently
+  updated, the current branch's PR marked, and Load 10 more adds the next 10;
+  Mine and To review list yours and those waiting for your review.
 - **Ship** is solid on an open, non-draft, conflict-free PR and dim with the
   reason otherwise; it opens the confirm, and confirming merges (test on a
   throwaway PR) and turns the button to **Shipped**.

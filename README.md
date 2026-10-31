@@ -12,7 +12,8 @@ merged pull request without leaving your terminals.
 - **PR changes** opens the side panel on everything the branch changes since
   its base, uncommitted work included. Double-click a file to read it whole
   in a pane.
-- **PRs** lists the repo's open pull requests (All, Mine, To review).
+- **PRs** lists the repo's open pull requests, 10 at a time, newest update
+  first (All, Mine, To review), with a Load more button.
 - **Ship** merges the pull request, after a confirm that says how, into what,
   and what still looks wrong (failing checks, no approval, open threads).
 - **The review** (click the PR on the strip) opens in the side panel, like
