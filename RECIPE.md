@@ -282,7 +282,14 @@ a close button.
 
 ## Built from
 
-- **Two mods**, no layout of their own:
+- **Adding it from this repo** (an agent following AGENTS.md): copy the
+  five `mods/ship-it*` folders as they are. Each is complete: the shared
+  `data.js`, `files.js` and icons are already copied in, so
+  `scripts/install.sh` is optional. The panels and the file pane draw icons
+  from `mods/ship-it/icons/`: if `ship-it` must be renamed, change those
+  paths too. Then add the three layout blocks below and `herdr-app check`
+  each mod. `gh` must be installed and logged in for the PR parts.
+- **Five mods**, no layout of their own:
   - `mods/ship-it/`: `main.js` (the strip), `data.js` (git and GitHub
     facts), `mod.json` `{"place": "none", "title": "Ship it"}`, `icons/`.
   - `mods/ship-it-review/`: `main.js` (the pane), `files.js` (branch diff,

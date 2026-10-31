@@ -21,34 +21,62 @@ merged pull request without leaving your terminals.
   threads with Reply and Resolve) and **Checks** (failing first, the failed
   log's tail, Re-run failed).
 
-## Requirements
+## Install
 
-- The Herdr desktop app (`herdr-app`).
-- `git`, and the [GitHub CLI](https://cli.github.com) logged in (`gh auth
-  login`) for anything about pull requests. Without `gh` the strip still
-  shows the folder, branch and changes.
+### Ask your agent
+
+In a Herdr terminal, paste this to your coding agent:
+
+```text
+Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/ashrodan/ship-it
+```
+
+It follows the "Layouts and mods other people made" steps there, and
+`RECIPE.md` says which three blocks go into your layout.
+
+### Or install it yourself
+
+```sh
+git clone https://github.com/ashrodan/ship-it && cd ship-it
+scripts/install.sh --layout my-main   # your layout: herdr-app status shows its name
+herdr-app do layout.switch --name my-main
+```
+
+`--layout` adds the strip under the tab bar and the two panels next to Files
+and Changes, once, after backing the file up to `<name>.json.before-ship-it`.
+Herdr's own layouts (`main`, `terminals`, `win98`) are read-only, so clone
+one first:
+
+```sh
+cp ~/.config/herdr-app/layouts/main.json ~/.config/herdr-app/layouts/my-main.json
+```
+
+Without `--layout`, the script only installs the mods; add the blocks by hand
+(below).
+
+**Update:** `git pull && scripts/install.sh`. **Remove:** delete
+`~/.config/herdr-app/mods/ship-it*` and restore the layout from its
+`.before-ship-it` backup.
+
+### Requirements
+
+- The Herdr desktop app (`herdr-app`), macOS or Linux, and `python3` for
+  `--layout`.
+- `git`, and the [GitHub CLI](https://cli.github.com) logged in
+  (`gh auth login`) for anything about pull requests. Without `gh` the strip
+  still shows the folder, branch and changes.
 - Remote machines work through Herdr's own `exec`: they need `git` and `gh`
   there too.
 
-## Install
+### The blocks, by hand
 
-```sh
-git clone <this repo> ship-it && cd ship-it
-scripts/install.sh
-```
-
-That copies the mods into `${HERDR_APP_HOME:-~/.config/herdr-app}/mods/` and
-checks each one. Then add three blocks to your own layout (Herdr's shipped
-layouts are read-only: clone one under `layouts/` first):
-
-1. The strip, in the work column between the tab bar and the panes:
+1. The strip, in the work column right after the tab bar (`tabs`):
 
    ```json
    { "id": "ship-it", "type": "block", "size": { "px": 40 }, "content": { "mod": "ship-it" } }
    ```
 
-2. Two panels, as children of the `panel-body` stack next to `files` and
-   `changes`:
+2. Two panels, as children of the `panel-body` stack after `changes`:
 
    ```json
    { "id": "ship-it-changes", "type": "block", "content": { "mod": "ship-it-changes" } },
@@ -95,8 +123,9 @@ refresh, and the review pane reads the diff only when its Files tab shows.
 - `mods/ship-it-changes/`, `mods/ship-it-prs/`: the two panels.
 - `mods/ship-it-file/`: the read-only file pane.
 - `scripts/install.sh`: copies the shared `data.js`, `files.js` and icons
-  into the mods that use them (a mod can't import from another), then
-  installs. `--sync` only refreshes the copies.
+  into the mods that use them (a mod can't import from another), installs
+  and checks the mods, and with `--layout` runs `scripts/add-to-layout.py`.
+  `--sync` only refreshes the copies.
 - `RECIPE.md`: the full spec, detailed enough for an agent to rebuild it.
 
 ## Credits
