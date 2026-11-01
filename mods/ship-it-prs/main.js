@@ -80,14 +80,38 @@ async function addWorktree(root, on, pr) {
   return path;
 }
 
+// Where each space on the machine is: its first terminal's folder, else the
+// one it was made in. Read once per render: panes() copies every pane.
+function places(on) {
+  const ps = panes();
+  return spaces().filter((s) => (s.machine ?? null) === (on ?? null)).map((s) => {
+    const tabs = new Set((s.tabs ?? []).map((t) => t.id));
+    return { s, at: ps.find((p) => tabs.has(p.tab) && p.cwd)?.cwd || s.folder || null };
+  });
+}
+
+// The space showing a checkout, if one does. A space in a deeper checkout
+// (.worktrees/x inside the repo's own) is that checkout's, not this one's.
+function spaceAt(path, where, paths = []) {
+  if (!path) return undefined;
+  const inside = (p, dir) => p === dir || p?.startsWith(dir + "/");
+  return where.find(({ at }) => inside(at, path) && !paths.some((c) => c.length > path.length && inside(at, c)))?.s;
+}
+
 // Show the space on that checkout, or make one (unnamed: it is called after
 // the checkout and nests under the repo's space).
-function showSpace(path, on) {
-  const inside = (cwd) => cwd === path || cwd?.startsWith(path + "/");
-  const s = spaces().find((s) => (s.machine ?? null) === (on ?? null)
-    && (inside(s.folder) || panes().some((p) => inside(p.cwd) && s.tabs.some((t) => t.id === p.tab))));
+function showSpace(path, on, paths) {
+  const s = spaceAt(path, places(on), paths);
   if (s) run("space.select", { id: s.id });
   else run("space.new", { folder: path, ...(on ? { machine: on } : {}) });
+}
+
+// What a PR's worktree button does: go to its space, open its checkout as a
+// space, or create the checkout.
+function treeLook(path, space) {
+  if (space) return { icon: "git-branch", label: "Go to space", tip: `Go to the space on ${tilde(path)}`, color: "accent" };
+  if (path) return { icon: "folder", label: "Open worktree", tip: `Open ${tilde(path)} as a space`, color: "accent" };
+  return { icon: "git-branch-plus", label: "Create worktree", tip: "Check it out in a new worktree and open it as a space", color: "dim" };
 }
 
 export default class PullRequests extends View {
@@ -195,9 +219,9 @@ export default class PullRequests extends View {
     this.opening = pr.number; cx.notify();
     cx.spawn(async (cx) => {
       try {
-        const path = (await worktrees(root, on))[branch] ?? await addWorktree(root, on, pr);
-        if (this.root === root) this.trees = { ...this.trees, [branch]: path };
-        showSpace(path, on);
+        const trees = await worktrees(root, on), path = trees[branch] ?? await addWorktree(root, on, pr);
+        if (this.root === root) this.trees = { ...trees, [branch]: path };
+        showSpace(path, on, Object.values(trees));
       } catch (e) { notify({ title: `Couldn't open #${pr.number} in a worktree`, body: String(e.message ?? e), level: "error", timeout: 8 }); }
       finally { this.opening = null; cx.notify(); }
     });
@@ -205,7 +229,7 @@ export default class PullRequests extends View {
 
   icon(name, color, size = 14) { return svg(ICON(name)).size(size).flex_none().text_color(color); }
 
-  row(pr, t) {
+  row(pr, t, where) {
     const look = prLook(pr), review = reviewLook(pr.reviewDecision), check = CHECK[checkState(pr.statusCheckRollup)];
     const here = pr.headRefName === this.branch;
     return v_flex().id(`pr-${pr.number}`).flex_none().px(10).py(7).gap(3).rounded(7).cursor_pointer()
@@ -225,23 +249,22 @@ export default class PullRequests extends View {
         .when(here, (e) => e.child(div().flex_none().text_color(t.accent).child("· this branch")))
         .child(div().flex_1())
         .when(!here, (e) => {
-          const path = this.trees[localBranch(pr)], busy = this.opening === pr.number;
-          return e.child(div().id(`pr-tree-${pr.number}`).flex_none().rounded(4).p(2).hover((s) => s.bg(t.raised))
-            .tooltip(path ? `Show its worktree space (${tilde(path)})` : `Check out ${localBranch(pr)} in a worktree and open it as a space`)
+          const path = this.trees[localBranch(pr)], look = treeLook(path, spaceAt(path, where, Object.values(this.trees))), busy = this.opening === pr.number;
+          return e.child(div().id(`pr-tree-${pr.number}`).flex_none().rounded(4).p(2).hover((s) => s.bg(t.raised)).tooltip(look.tip)
             .on_click((_e, cx) => { cx.stop_propagation(); this.worktree(pr, cx); })
-            .child(this.icon(busy ? "loader" : "git-branch", path ? t.accent : t.dim, 12).when(busy, (i) => i.spin(800))));
+            .child(this.icon(busy ? "loader" : look.icon, t[look.color], 12).when(busy, (i) => i.spin(800))));
         })
         .when(Boolean(review) && pr.reviewDecision !== "REVIEW_REQUIRED", (e) => e.child(div().flex_none().text_color(t[review.color]).child(review.label)))
         .child(div().flex_none().text_color(t.ansi2).child(`+${pr.additions}`))
         .child(div().flex_none().text_color(t.ansi1).child(`−${pr.deletions}`)))
-      .when(this.expanded === pr.number, (e) => e.child(this.details(pr, here, t)));
+      .when(this.expanded === pr.number, (e) => e.child(this.details(pr, here, t, where)));
   }
 
   // An open row: what the PR is and what it waits on, then its actions.
-  details(pr, here, t) {
+  details(pr, here, t, where) {
     const n = checkCounts(pr.statusCheckRollup), review = reviewLook(pr.reviewDecision);
     const asked = (pr.reviewRequests ?? []).map((r) => r.login ?? r.name ?? r.slug).filter(Boolean);
-    const path = this.trees[localBranch(pr)], busy = this.opening === pr.number;
+    const path = this.trees[localBranch(pr)], space = spaceAt(path, where, Object.values(this.trees)), look = treeLook(path, space), busy = this.opening === pr.number;
     const line = (icon, ...kids) => h_flex().gap(6).items_center().min_w(0).child(this.icon(icon, t.dim, 12)).children(kids);
     const checks = [[n.fail, "failed", "ansi1"], [n.pending, "running", "ansi3"], [n.pass, "passed", "ansi2"]].filter(([k]) => k)
       .map(([k, what, color], i) => div().flex_none().text_color(t[color]).child(`${i ? "· " : ""}${k} ${what}`));
@@ -256,16 +279,16 @@ export default class PullRequests extends View {
       .child(line("message-square", div().flex_none().when(Boolean(review), (e) => e.text_color(t[review?.color] ?? t.muted)).child(review?.label ?? "No review yet"),
         ...(asked.length ? [div().min_w(0).truncate().child(`· asked: ${asked.join(", ")}`)] : [])))
       .when((pr.labels ?? []).length > 0, (e) => e.child(line("circle-dot", div().min_w(0).truncate().child(pr.labels.map((l) => l.name).join(", ")))))
-      .child(line("folder", div().min_w(0).truncate().child(here ? "Checked out here" : path ? tilde(path) : "No worktree yet")))
+      .child(line("folder", div().min_w(0).truncate().child(here ? "Checked out here" : path ? `${tilde(path)}${space ? "" : " · no space open"}` : "No worktree yet")))
       .child(h_flex().pt(3).gap(6).flex_wrap()
-        .when(!here, (e) => e.child(button("open-tree", busy ? "loader" : "git-branch", busy ? "Opening…" : path ? "Go to worktree" : "Open in worktree", true, (cx) => this.worktree(pr, cx))))
+        .when(!here, (e) => e.child(button("open-tree", busy ? "loader" : look.icon, busy ? (path ? "Opening…" : "Creating…") : look.label, true, (cx) => this.worktree(pr, cx))))
         .child(button("github", "external-link", "GitHub", false, (cx) => cx.open_url(pr.url)))
         .child(button("copy", "copy", "Copy link", false, (cx) => { cx.write_to_clipboard(pr.url); notify({ title: `#${pr.number} link copied`, body: pr.url, level: "info", timeout: 2 }); })));
   }
 
   render(cx) {
     if (this.shown() && (this.stale || this.key() !== this.context)) this.refresh(cx, false, true);
-    const t = theme(), list = this.prs;
+    const t = theme(), list = this.prs, where = list.length ? places(this.on) : [];
     const empty = this.error || (this.loading ? "Loading pull requests…" : this.filter === "all" ? "No open pull requests" : this.filter === "mine" ? "No open pull requests of yours" : "Nothing waiting for your review");
     return v_flex().id("ship-it-prs").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13)
       .child(h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
@@ -281,7 +304,7 @@ export default class PullRequests extends View {
           .on_click((_e, cx) => this.pick(id, cx)).child(label);
       })))
       .child(v_flex().id("prs-list").flex_1().min_h(0).overflow_y_scrollbar().p(6).gap(2)
-        .children(list.map((pr) => this.row(pr, t)))
+        .children(list.map((pr) => this.row(pr, t, where)))
         .when(this.more && list.length > 0, (e) => e.child(div().id("prs-more").mx(4).my(6).h(28).flex_none().flex().items_center().justify_center().rounded(7)
           .border_1().border_color(t.border).text_size(12).text_color(t.muted).cursor_pointer().hover((s) => s.bg(t.hover))
           .on_click((_e, cx) => this.loadMore(cx)).child(this.loading ? "Loading…" : `Load ${PAGE} more`)))

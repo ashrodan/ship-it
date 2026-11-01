@@ -20,9 +20,11 @@ strip, PR changes, the review, the PR list and Ship.
 - **PRs** lists the repo's open pull requests, 10 at a time, newest update
   first (All, Mine, To review), with a Load more button. Click a PR to open
   its details: branch, checks, review and who is asked, labels, its
-  worktree, and buttons to open it in a worktree, on GitHub, or copy the
-  link. The branch icon on a row opens the worktree in one click: it checks
-  the PR out first when it isn't yet.
+  worktree, and buttons for its worktree, GitHub, and copying the link. The
+  worktree button says what a click does: **Go to space** (a space is open on
+  its checkout), **Open worktree** (checked out, no space yet) or **Create
+  worktree** (checks the PR out first). The icon at a row's end does the same
+  in one click: an accent branch, an accent folder, or a dim branch-plus.
 - **Ship** merges the pull request, after a confirm that says how, into what,
   and what still looks wrong (failing checks, no approval, open threads).
 - **The review** (click the PR on the strip) opens in the side panel, like
