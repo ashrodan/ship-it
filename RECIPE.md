@@ -32,7 +32,11 @@ the text colour. Groups are separated by a 1px × 16px `border` rule with
 radius 6, `hover` background. The machine and the branch are not on it:
 Herdr's status bar shows both. Left to right:
 
-1. **Folder.** A `folder` icon and the repo root with home shortened to `~`.
+1. **Repo.** A 26px button like the others: `git-pull-request`, the repo's
+   name (its main checkout's folder, also in a worktree) semibold, and
+   "n PRs" in `muted`. Toggles the Pull requests panel; `accent` border
+   while it is open. Without a GitHub remote, only the name, not clickable.
+   Then, only in a worktree or a subfolder, the **folder**: a `folder` icon and the repo root with home shortened to `~`.
    A subfolder of the repo follows in `dim`. Truncates from the left. The
    folder and item 2 share the width the buttons leave (`flex_1`, `min_w(0)`,
    overflow hidden), so nothing runs under the buttons.
@@ -64,8 +68,6 @@ Herdr's status bar shows both. Left to right:
      cancelled), `circle-dot` n (amber, pending); only non-zero counts show,
      and the button hides when there are none (no checks, or only skipped).
      Opens the review on **Checks**; `accent` border while it is open there.
-   - **PRs** (`git-pull-request`) with the open count, when the repo has a
-     GitHub remote. Toggles the Pull requests panel.
    - **Ship** (`rocket`), solid (`solid` / `solid_foreground`) when the PR
      can merge; quiet, with the reason as its hover text, when it can't
      (no PR, draft, conflicts, merged, closed). "Shipping…" while the merge
@@ -270,7 +272,7 @@ a close button.
   - **Create PR**: `gh pr create --web`.
   - **Changes**: opens the Changes panel on Since <base>; a second click
     closes it.
-  - **PRs**: toggles the Pull requests panel. A row opens its details and
+  - **Repo** (first on the left): toggles the Pull requests panel. A row opens its details and
     actions; its number copies the link. Filters: All, Mine, To review.
   - **Ship**: asks first (Herdr's `confirm` dialog: how it merges, what
     into, and any failing or running checks, missing approval or open

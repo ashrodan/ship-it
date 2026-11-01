@@ -347,6 +347,18 @@ export default class ShipIt extends View {
       .when(Boolean(review), (e) => e.child(this.group("review", t, div().text_color(t[review.color] ?? t.muted).whitespace_nowrap().child(review.label), () => this.openReview("overview"))));
   }
 
+  // First on the left: the repo's name and its open PRs; a click toggles the
+  // PRs panel. Without a GitHub remote (or the panel), only the name.
+  repoButton(t) {
+    const g = this.git, p = this.panel(), prs = p.has("ship-it-prs") && this.showPrs(), n = this.prCount(), on = prs && p.open("ship-it-prs");
+    return h_flex().id("repo").h(26).px(9).gap(6).flex_none().items_center().rounded(6)
+      .border_1().border_color(on ? t.accent : t.border).bg(on ? t.selected : t.background)
+      .when(prs, (e) => e.cursor_pointer().hover((s) => s.bg(t.hover)).tooltip(`Open pull requests in ${g.repo}`).on_click(() => this.togglePanel("ship-it-prs")))
+      .child(this.icon("git-pull-request", on ? t.accent : t.muted, 13))
+      .child(div().font_semibold().text_color(t.foreground).whitespace_nowrap().child(g.repo))
+      .when(prs, (e) => e.child(div().text_color(t.muted).whitespace_nowrap().child(n ? `${n} PR${n > 1 ? "s" : ""}` : "PRs")));
+  }
+
   // CI on the right, between the changes and PRs buttons: the PR's checks
   // as passed, failed and running counts. Opens the review on Checks.
   checksButton(t) {
@@ -408,11 +420,13 @@ export default class ShipIt extends View {
     return h_flex().id("ship-it").size_full().px(10).items_center().bg(t.chrome).border_b(1).border_color(t.border)
       .text_size(12).text_color(t.foreground).overflow_hidden()
       .on_size_change((size, cx) => { if (Math.abs(size.width - this.width) > 1) { this.width = size.width; cx.notify(); } })
-      // Left: the folder and what the PR waits on, in what the buttons leave:
-      // the folder's path shortens from its start, so nothing runs under them.
-      // The machine and branch are in Herdr's status bar.
+      // Left: the repo and its PRs, the folder when it says more than the name
+      // (a worktree, a subfolder), and what the PR waits on, in what the
+      // buttons leave: the folder's path shortens from its start, so nothing
+      // runs under them. The machine and branch are in Herdr's status bar.
       .child(h_flex().flex_1().min_w(0).overflow_hidden().items_center()
-        .child(this.loc?.cwd ? this.folder(t, narrow) : div().text_color(t.dim).child(this.first ? "…" : "No folder"))
+        .when(Boolean(g), (e) => e.child(this.repoButton(t)))
+        .when(!g || g.worktree || Boolean(g.sub), (e) => e.child(this.loc?.cwd ? this.folder(t, narrow) : div().text_color(t.dim).child(this.first ? "…" : "No folder")))
         .when(Boolean(signals), (e) => e.child(this.sep(t)).child(signals.flex_none())))
       .when(Boolean(g), (e) => e.child(h_flex().ml(8).gap(6).flex_none().items_center()
         .when(Boolean(prButton), (e) => e.child(prButton))
@@ -422,10 +436,6 @@ export default class ShipIt extends View {
           tip: s ? `${s.files} files changed since ${s.base}` : "What this branch changes",
         })))
         .when(Boolean(checks), (e) => e.child(checks))
-        .when(p.has("ship-it-prs") && this.showPrs(), (e) => e.child(this.button("prs", t, {
-          icon: "git-pull-request", label: "PRs", on: p.open("ship-it-prs"), onClick: () => this.togglePanel("ship-it-prs"),
-          extra: this.prCount() ? [div().text_color(t.muted).child(String(this.prCount()))] : [], tip: "Open pull requests in this repo",
-        })))
         .when(this.showPr(), (e) => e.child(this.shipButton(t)))));
   }
 }

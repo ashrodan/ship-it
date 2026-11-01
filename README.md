@@ -10,8 +10,10 @@ https://github.com/user-attachments/assets/5e31d154-aa5b-4854-af67-2ddc534e9a19
 The 40-second showcase: Claude and Codex at work on a real pull request, the
 strip, PR changes, the review, the PR list and Ship.
 
-- **The strip**, under the tab bar, always says where the work is: the
-  folder, and what the pull request waits on: conflicts, checks, open review
+- **The strip**, under the tab bar, always says where the work is: first
+  the repo's name with its open PR count (a click opens the PRs list), the
+  folder when it says more (a worktree, a subfolder), and what the pull
+  request waits on: conflicts, checks, open review
   threads and the review decision. (The machine and branch are in Herdr's
   status bar.) It follows the pane you're in, across spaces and machines.
 - **CI**, on the right between the changes and PRs buttons: the PR's checks
@@ -27,7 +29,7 @@ strip, PR changes, the review, the PR list and Ship.
   button opens it. The strip's changes button (its file count and `+/−`)
   opens it on Since main. Double-click a file to read it whole
   in a pane.
-- **PRs** lists the repo's open pull requests, 10 at a time, newest update
+- **PRs** (the repo's name on the strip) lists the repo's open pull requests, 10 at a time, newest update
   first (All, Mine, To review), with a Load more button. Click a PR to open
   its details: branch, checks, review and who is asked, labels, its
   worktree, and buttons for its worktree, GitHub, and copying the link. The
