@@ -686,8 +686,11 @@ export default class Review extends View {
       }));
   }
 
+  // A branch name; a click copies it.
   branchChip(name, t) {
-    return div().h(20).px(6).flex().items_center().rounded(4).bg(t.raised).font_family(settings().font_family ?? "JetBrains Mono").text_size(11).text_color(t.foreground).child(name ?? "");
+    return div().id(`branch-${name}`).h(20).px(6).flex().items_center().rounded(4).bg(t.raised).cursor_pointer().hover((s) => s.bg(t.hover)).tooltip("Copy the branch name")
+      .font_family(settings().font_family ?? "JetBrains Mono").text_size(11).text_color(t.foreground).child(name ?? "")
+      .on_click((_e, cx) => { if (!name) return; cx.write_to_clipboard(name); notify({ title: "Branch copied", body: name, level: "info", timeout: 2 }); });
   }
 
   card(t, who, verb, at, content, accent) {

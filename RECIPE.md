@@ -66,7 +66,7 @@ radius 6, `hover` background. Left to right:
      With no PR on a feature branch: **Create PR** (`git-pull-request`).
    - **Changes** (`file-diff`, no label) with the branch's file count (`muted`),
      `+add` (green) and `−del` (red); the counts hide when nothing differs.
-     While the PR changes panel is open: `accent` border, `selected` fill.
+     While Changes is open on Since main: `accent` border, `selected` fill.
      (Herdr's own Changes, for uncommitted work, stays in the tab bar.)
    - **PRs** (`git-pull-request`) with the open count, when the repo has a
      GitHub remote. Toggles the Pull requests panel.
@@ -78,15 +78,21 @@ radius 6, `hover` background. Left to right:
 
 Narrower than 900px, the folder shows only the repo name.
 
-### The PR changes panel (`ship-it-changes`)
+### The Changes panel (`ship-it-changes`)
 
 A side panel in the `panel-body` stack, drawn exactly like Herdr's Changes
-panel, but for the branch, not the working tree. Double-click a file (or its
+panel, and in its place: the layout's `changes` block holds it, so the tab
+bar's Changes button opens it. Two views, kept in shared
+`ship-it.changes` (`{mode: "dirty" | "branch"}`): **Uncommitted** (the
+working tree against `HEAD`, with Herdr's commit box: a message input and
+**Commit**, which runs `git add -A` then `git commit -m`) and **Since
+<base>** (what the branch changes since its base). The strip's changes button
+opens it on Since <base>. Double-click a file (or its
 open icon) to open it whole, read-only, in a `ship-it-file` pane; the review
 pane's Files view has the same as an **Open** button and `e`:
 
-- Header: "PR changes", an `n files` chip, `since origin/main` (`dim`),
-  `+add −del`.
+- Header: "Changes", the two views as a segmented control (Uncommitted,
+  Since main), an `n files` chip, `+add −del`.
 - File list (at most 200px): status letter (A green, D/U red, M amber),
   folder in `dim` and name, an amber dot when the file also has uncommitted
   edits, `+n −n`. The first file is open until you pick another; a click
@@ -268,7 +274,8 @@ a close button.
   - **PR**: opens the review on **Overview** (it has the GitHub link).
     Conflicts, threads, review decision: the same. Checks: on **Checks**.
   - **Create PR**: `gh pr create --web`.
-  - **Changes**: toggles the PR changes panel.
+  - **Changes**: opens the Changes panel on Since <base>; a second click
+    closes it.
   - **PRs**: toggles the Pull requests panel. A row opens its details and
     actions; its number copies the link. Filters: All, Mine, To review.
   - **Ship**: asks first (Herdr's `confirm` dialog: how it merges, what
@@ -285,7 +292,7 @@ a close button.
 
 ### Panels and the file pane
 
-- **PR changes:** a click on a file shows its diff; a click on the open
+- **Changes:** a click on a file shows its diff; a click on the open
   file closes it; a double-click, or the open icon on the selected row,
   opens it in the file pane. The file pane is this tab's if it has one
   (it switches to the new file), else a new one split to the right.
@@ -368,7 +375,7 @@ a close button.
     diff rows, log tail), a copy of `data.js` and `icons/`, `mod.json`
     `{"place": "none", "title": "Review"}`.
   - `mods/ship-it-changes/`: `main.js` (the panel), copies of `data.js`
-    and `files.js`, `mod.json` `{"place": "none", "title": "PR changes"}`.
+    and `files.js`, `mod.json` `{"place": "none", "title": "Changes"}`.
   - `mods/ship-it-prs/`: `main.js` (the panel), a copy of `data.js`,
     `mod.json` `{"place": "none", "title": "Pull requests"}`.
   - `mods/ship-it-file/`: `main.js` (the file pane), `mod.json`

@@ -17,8 +17,13 @@ strip, PR changes, the review, the PR list and Ship.
 - **The PR button**, first on the right, is the main action: the PR's
   number, state and the first 30 characters of its title. It opens the
   review. On a branch with no PR it is **Create PR**.
-- **The changes button** (its file count and `+/−`) opens the side panel on
-  everything the branch changes since its base, uncommitted work included. Double-click a file to read it whole
+- **Changes** is one side panel with two views. **Uncommitted** is the
+  working tree against `HEAD`, with a commit box (`git add -A`, then
+  `git commit -m`, as Herdr's own Changes panel does). **Since main** is
+  everything the branch changes since its base, uncommitted work included.
+  It takes the place of Herdr's Changes panel, so the tab bar's Changes
+  button opens it. The strip's changes button (its file count and `+/−`)
+  opens it on Since main. Double-click a file to read it whole
   in a pane.
 - **PRs** lists the repo's open pull requests, 10 at a time, newest update
   first (All, Mine, To review), with a Load more button. Click a PR to open
@@ -31,7 +36,7 @@ strip, PR changes, the review, the PR list and Ship.
 - **Ship** merges the pull request, after a confirm that says how, into what,
   and what still looks wrong (failing checks, no approval, open threads).
 - **The review** (the PR button on the strip) opens in the side panel, like
-  PR changes, and has three tabs:
+  Changes, and has three tabs:
   **Overview** (description, conversation, conflicts with a copyable list,
   open threads, a comment box), **Files** (the diff, "viewed" marks, inline
   threads with Reply and Resolve) and **Checks** (failing first, the failed
@@ -100,7 +105,7 @@ Without `--layout`, the script only installs the mods; add the blocks by hand
    { "id": "ship-it-prs", "type": "block", "content": { "mod": "ship-it-prs" } }
    ```
 
-Without the panel blocks, the PR changes and PRs buttons hide, and the
+Without the panel blocks, the changes and PRs buttons hide, and the
 review opens as a pane to the right instead.
 
 ## Keys (review pane)

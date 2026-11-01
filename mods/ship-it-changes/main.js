@@ -1,23 +1,46 @@
-// PR changes: what the branch changes since its base, in the side panel, drawn
-// like Herdr's own Changes panel (files above, the picked file's diff below).
-// The base is the one the strip found for this repo (shared "ship-it.base"),
-// else origin/HEAD, main or master.
+// Changes: one panel for what you changed, in two views. Uncommitted is the
+// working tree against HEAD, with a commit box (git add -A, git commit -m, as
+// Herdr's own Changes panel does). Since <base> is what the branch changes
+// since its base, uncommitted work included: the PR after the next push. The
+// base is the one the strip found for this repo (shared "ship-it.base"), else
+// origin/HEAD, main or master. Files above, the picked file's diff below.
+// The layout's "changes" block can hold it, so Herdr's Changes button opens it.
 //
 // data.js and files.js are copies: edit mods/ship-it/data.js and
 // mods/ship-it-review/files.js, then run scripts/install.sh.
 
 import { View, div, svg } from "gpui-kit";
-import { v_flex, h_flex, Scrollbar, v_virtual_list } from "gpui-base";
-import { exec, shared, setShared, run, panes, focused, watchFolder, theme, settings } from "herdr";
+import { v_flex, h_flex, Scrollbar, v_virtual_list, InputState, Input } from "gpui-base";
+import { exec, shared, setShared, run, panes, focused, watchFolder, theme, settings, layout } from "herdr";
 import { location, baseRef, panelShown, Recent } from "./data.js";
 import { branchFiles, fileDiff, diffRows, MAX_FILES } from "./files.js";
 
 const STATUS = { A: "ansi2", D: "ansi1", U: "ansi1", M: "ansi3" };
 const ICON = (name) => `mods/ship-it/icons/${name}.svg`;
 
+// The view: "dirty" (uncommitted) or "branch" (since the base). Shared, so the
+// strip's changes button can open the branch view.
+const mode = () => (shared("ship-it.changes")?.mode === "dirty" ? "dirty" : "branch");
+
+// The panel-body block that holds this mod: "changes" when it took the place
+// of Herdr's own, else "ship-it-changes".
+function host() {
+  const find = (n) => n?.id === "panel-body" ? n : (n?.children ?? []).map(find).find(Boolean);
+  return find(layout())?.children?.find((c) => c.content?.mod === "ship-it-changes")?.id ?? "ship-it-changes";
+}
+
 export default class PrChanges extends View {
   init(_props, cx) {
-    this.files = []; this.rows = []; this.diffWidth = 0; this.last = null;
+    this.files = []; this.rows = []; this.diffWidth = 0; this.last = null; this.message = "";
+    this.input = InputState.new({ placeholder: "Commit message" });
+    this.input.on("change", (_e, cx) => {
+      const had = Boolean(this.message.trim());
+      this.message = this.input.value();
+      if (had !== Boolean(this.message.trim())) cx.notify();
+    });
+    this.input.on("submit", (_e, cx) => this.commit(cx));
+    this.input.on("focus", (_e, cx) => { this.typing = true; cx.notify(); });
+    this.input.on("blur", (_e, cx) => { this.typing = false; cx.notify(); });
     // Last list per folder and base: switching back shows it at once.
     this.memo = new Recent(12);
     this.refresh(cx);
@@ -25,7 +48,7 @@ export default class PrChanges extends View {
   }
 
   // Hidden, it only notes that it is out of date; showing it catches up.
-  shown() { return panelShown("ship-it-changes"); }
+  shown() { return panelShown(host()); }
 
   // Where the work is, and the base the strip found for that repo.
   where() {
@@ -36,7 +59,7 @@ export default class PrChanges extends View {
 
   key() {
     const { cwd, on, base } = this.where();
-    return JSON.stringify([cwd, on, base?.root, base?.ref]);
+    return JSON.stringify([cwd, on, base?.root, base?.ref, mode()]);
   }
 
   watch(root, cx) {
@@ -73,7 +96,7 @@ export default class PrChanges extends View {
         if (this.key() !== context) return;
         if (top.code !== 0) { this.root = null; this.files = []; this.setLines([]); this.open = null; this.error = "Not a git repository"; return; }
         const root = top.stdout.trim();
-        const base = shown?.root === root && (shown.on ?? null) === (on ?? null) && shown.ref ? shown.ref : await baseRef(root, on, null);
+        const base = mode() === "dirty" ? "HEAD" : shown?.root === root && (shown.on ?? null) === (on ?? null) && shown.ref ? shown.ref : await baseRef(root, on, null);
         if (this.key() !== context) return;
         if (!base) { this.root = root; this.files = []; this.error = "No base branch to compare with"; return; }
         const { mb, files, limited } = await branchFiles(root, on, base);
@@ -133,6 +156,27 @@ export default class PrChanges extends View {
     run("pane.split", { direction: "right", ...(from ? { pane: from } : {}), mod: "ship-it-file", props: { root: this.root, on: this.on ?? null, path } });
   }
 
+  setMode(m) {
+    if (m !== mode()) setShared("ship-it.changes", { mode: m, at: Date.now() });
+  }
+
+  commit(cx) {
+    if (!this.message.trim() || !this.root || this.busy || this.loading || mode() !== "dirty") return;
+    const root = this.root, on = this.on, context = this.context, message = this.message.trim();
+    this.busy = true; this.note = null;
+    cx.spawn(async (cx) => {
+      try {
+        for (const args of [["add", "-A"], ["commit", "-m", message]]) {
+          const r = await exec("git", args, { cwd: root, on });
+          if (r.code !== 0) throw new Error((r.stderr || r.stdout).trim());
+        }
+        if (this.key() === context) { this.message = ""; this.input.set_value(""); }
+      } catch (e) { if (this.key() === context) this.note = `Commit failed: ${e}`; }
+      finally { this.busy = false; this.refresh(cx); cx.notify(); }
+    });
+    cx.notify();
+  }
+
   diffRow(row, t) {
     const { kind, text } = row, number = kind === "-" ? row.old : row.new;
     if (kind === "@") return div().w_full().px(12).h(20).flex_none().truncate().bg(t.raised).text_color(t.dim).child(text);
@@ -144,12 +188,19 @@ export default class PrChanges extends View {
   render(cx) {
     if (this.shown() && (this.stale || this.key() !== this.context)) this.refresh(cx);
     const t = theme(), add = this.files.reduce((n, f) => n + f.add, 0), del = this.files.reduce((n, f) => n + f.del, 0);
-    const empty = this.error || (this.loading ? "Loading changes…" : this.base ? `No changes since ${this.base}` : this.root ? "Loading changes…" : "No folder");
+    const dirty = mode() === "dirty", enabled = Boolean(this.message.trim() && this.root && !this.busy && !this.loading);
+    const empty = this.error || (this.loading ? "Loading changes…" : dirty && this.root ? "No uncommitted changes" : this.base ? `No changes since ${this.base}` : this.root ? "Loading changes…" : "No folder");
+    const since = (shared("ship-it.base")?.ref ?? this.base ?? "main").replace(/^origin\//, "");
+    const tab = (m, label, tip) => div().id(`changes-${m}`).h(24).px(8).flex().items_center().rounded(6).cursor_pointer().text_size(12).whitespace_nowrap().tooltip(tip)
+      .when(mode() === m, (e) => e.bg(t.selected).text_color(t.foreground)).when(mode() !== m, (e) => e.text_color(t.muted).hover((s) => s.bg(t.hover)))
+      .on_click(() => this.setMode(m)).child(label);
     return v_flex().id("pr-changes").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13)
       .child(h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
-        .child(div().font_semibold().whitespace_nowrap().child("PR changes"))
+        .child(div().font_semibold().whitespace_nowrap().child("Changes"))
+        .child(h_flex().gap(2).flex_none()
+          .child(tab("dirty", "Uncommitted", "The working tree against HEAD, with a commit box"))
+          .child(tab("branch", `Since ${since}`, `What the branch changes since ${shared("ship-it.base")?.ref ?? this.base ?? "its base"}, uncommitted work included`)))
         .child(div().px(5).py(1).rounded(4).border_1().border_color(t.border).text_size(10).text_color(t.muted).whitespace_nowrap().child(`${this.files.length} files`))
-        .when(Boolean(this.base), (e) => e.child(div().min_w(0).truncate().text_size(11).text_color(t.dim).child(`since ${this.base}`)))
         .child(div().flex_1()).child(div().text_size(11).text_color(t.ansi2).child(`+${add}`)).child(div().text_size(11).text_color(t.ansi1).child(`−${del}`)))
       .child(v_flex().id("pr-changes-list").flex_none().h(Math.min(200, Math.max(44, this.files.length * 28 + 12))).overflow_y_scrollbar().p(6).border_b(1).border_color(t.border).children(this.files.map((f) => {
         const parts = f.path.split("/"), name = parts.pop();
@@ -171,6 +222,9 @@ export default class PrChanges extends View {
             (range) => this.rows.slice(range.start, range.end).map((row) => this.diffRow(row, t))).size_full())))
         .child(Scrollbar.vertical("pr-changes-diff").viewport_from_layout().absolute().inset_0())
         .when(!this.open && this.files.length > 0, (e) => e.child(div().absolute().top(6).px(12).text_color(t.dim).child("Select a file to view its changes"))))
-      .when(Boolean(this.note), (e) => e.child(div().px(10).pb(8).text_size(11).text_color(t.ansi1).child(this.note)));
+      .when(Boolean(this.note), (e) => e.child(div().px(10).pb(8).text_size(11).text_color(t.ansi1).child(this.note)))
+      .when(dirty, (e) => e.child(h_flex().flex_none().p(10).gap(8).border_t(1).border_color(t.border)
+        .child(div().id("commit-message").flex_1().min_w(0).h(32).px(10).flex().items_center().rounded(8).border_1().border_color(this.typing ? t.accent : t.border).cursor_text().on_mouse_down("left", (_e, cx) => cx.stop_propagation()).child(Input.new(this.input).h_full().text_size(12).text_color(t.foreground)))
+        .child(div().id("commit").h(32).px(14).flex().items_center().rounded(8).bg(enabled ? t.solid : t.raised).text_color(enabled ? t.solid_foreground : t.dim).text_size(12).when(enabled, (e) => e.cursor_pointer()).on_click((_e, cx) => this.commit(cx)).child(this.busy ? "Committing…" : "Commit"))));
   }
 }

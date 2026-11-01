@@ -5,18 +5,23 @@
 
 - The strip (`ship-it`, 40px) goes right after the tab bar (the block that
   shows the `tabs` mod), in the same column.
-- The PR changes, review and Pull requests panels go into the `panel-body` stack,
-  after `changes`.
+- The Changes panel (`ship-it-changes`: uncommitted, with a commit box, and
+  since the base) takes the place of Herdr's own in the `changes` block, so
+  the tab bar's Changes button opens it. A `ship-it-changes` block from an
+  older install is removed. Without a `changes` block it gets its own.
+- The review and Pull requests panels go into the `panel-body` stack, after
+  `changes`.
 
 Blocks that are already there are left alone. The file is backed up to
 <name>.json.before-ship-it first (only the first time, so it stays the
-layout from before Ship it). Nothing else in the layout changes.
+layout from before Ship it); a later change to a layout that has that backup
+is backed up once to <name>.json.before-ship-it-changes. Nothing else in the
+layout changes.
 """
 import json, os, shutil, sys
 
 STRIP = {"id": "ship-it", "type": "block", "size": {"px": 40}, "content": {"mod": "ship-it"}}
 PANELS = [
-    {"id": "ship-it-changes", "type": "block", "content": {"mod": "ship-it-changes"}},
     {"id": "ship-it-review", "type": "block", "content": {"mod": "ship-it-review"}},
     {"id": "ship-it-prs", "type": "block", "content": {"mod": "ship-it-prs"}},
 ]
@@ -51,6 +56,21 @@ def main(path):
         print("  panels: no 'panel-body' stack found; PR changes and PRs will hide, and the review opens as a pane")
     else:
         kids = body.setdefault("children", [])
+        changes = next((c for c in kids if c.get("id") == "changes"), None)
+        if changes:
+            if (changes.get("content") or {}).get("mod") != "ship-it-changes":
+                changes["content"] = {"mod": "ship-it-changes"}
+                done.append("Changes panel in the changes block")
+            old = [c for c in kids if c.get("id") == "ship-it-changes"]
+            for c in old:
+                kids.remove(c)
+            if old:
+                done.append("old ship-it-changes block removed")
+                if body.get("active") == "ship-it-changes":
+                    body["active"] = "changes"
+        elif "ship-it-changes" not in ids:
+            kids.append({"id": "ship-it-changes", "type": "block", "content": {"mod": "ship-it-changes"}})
+            done.append("ship-it-changes panel")
         at = next((i + 1 for i, c in enumerate(kids) if c.get("id") == "changes"), len(kids))
         for block in PANELS:
             if block["id"] not in ids:
@@ -62,12 +82,15 @@ def main(path):
         print("  layout already has Ship it's blocks")
         return
     # The first backup is the layout before Ship it: never overwrite it.
-    if not os.path.exists(path + ".before-ship-it"):
-        shutil.copyfile(path, path + ".before-ship-it")
+    backup = path + ".before-ship-it"
+    if os.path.exists(backup):
+        backup = path + ".before-ship-it-changes"
+    if not os.path.exists(backup):
+        shutil.copyfile(path, backup)
     with open(path, "w") as f:
         json.dump(layout, f, indent=2)
         f.write("\n")
-    print("  added: " + ", ".join(done) + f" (backup: {path}.before-ship-it)")
+    print("  changed: " + ", ".join(done) + f" (backup: {backup})")
 
 
 if __name__ == "__main__":

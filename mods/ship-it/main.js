@@ -175,6 +175,22 @@ export default class ShipIt extends View {
     return { panel, body, has, open: (id) => panel && !panel.hidden && body?.active === id };
   }
 
+  // The block that holds the Changes panel: "changes" when it took the place
+  // of Herdr's own, else "ship-it-changes"; null without one.
+  changesHost() {
+    return this.panel().body?.children?.find((c) => c.content?.mod === "ship-it-changes")?.id ?? null;
+  }
+
+  // The changes button: Changes on its branch view (since the base). Open on
+  // that view already, it closes.
+  toggleChanges() {
+    const id = this.changesHost(), p = this.panel(), branch = shared("ship-it.changes")?.mode !== "dirty";
+    if (!id) return;
+    if (p.open(id) && branch) { run("layout.hide", { id: "panel" }); return; }
+    if (!branch) setShared("ship-it.changes", { mode: "branch", at: Date.now() });
+    run("layout.select", { stack: "panel-body", child: id }); run("layout.show", { id: "panel" });
+  }
+
   togglePanel(id) {
     const p = this.panel();
     if (!p.has(id)) return;
@@ -413,8 +429,8 @@ export default class ShipIt extends View {
       .child(div().flex_1().min_w(8))
       .when(Boolean(g), (e) => e.child(h_flex().gap(6).flex_none().items_center()
         .when(this.showPr(), (e) => e.child(this.prButton(t, narrow)))
-        .when(p.has("ship-it-changes"), (e) => e.child(this.button("pr-changes", t, {
-          icon: "file-diff", label: null, on: p.open("ship-it-changes"), onClick: () => this.togglePanel("ship-it-changes"),
+        .when(Boolean(this.changesHost()), (e) => e.child(this.button("pr-changes", t, {
+          icon: "file-diff", label: null, on: p.open(this.changesHost()) && shared("ship-it.changes")?.mode !== "dirty", onClick: () => this.toggleChanges(),
           extra: s?.files ? [div().text_color(t.muted).child(`${s.files}`), div().text_color(t.ansi2).child(`+${s.add}`), div().text_color(t.ansi1).child(`−${s.del}`)] : [],
           tip: s ? `${s.files} files changed since ${s.base}` : "What this branch changes",
         })))
