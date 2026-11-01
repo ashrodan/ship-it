@@ -1,5 +1,5 @@
-// Ship it: a fixed strip under the tab bar that says where the work is (machine,
-// folder, branch, pull request, its checks and review) and takes it from there
+// Ship it: a fixed strip under the tab bar that says where the work is (the
+// folder, and what the pull request waits on: checks, threads, review) and takes it from there
 // to shipped. On the right: the PR button (number, state, title) opens the
 // ship-it-review pane, the changes button what the branch changes in the side
 // panel, PRs the repo's open pull requests, and Ship merges this one (after a
@@ -285,10 +285,6 @@ export default class ShipIt extends View {
 
   sep(t) { return div().w(1).h(16).mx(12).flex_none().bg(t.border); }
 
-  pill(text, color, t) {
-    return div().h(18).px(6).flex_none().flex().items_center().rounded(5).border_1().border_color(t.border).text_size(10.5).text_color(color).child(text);
-  }
-
   // A clickable group: hover lifts it a little.
   group(id, t, el, onClick, tip) {
     return h_flex().id(id).h(28).px(6).gap(6).min_w(0).items_center().rounded(6)
@@ -317,12 +313,7 @@ export default class ShipIt extends View {
       .child(div().text_color(block ? t.dim : t.solid_foreground).font_semibold().child(this.merging ? "Shipping…" : merged ? "Shipped" : "Ship"));
   }
 
-  machine(t) {
-    const on = this.loc?.on;
-    return this.group("machine", t, h_flex().gap(6).items_center()
-      .child(this.icon(on ? "server" : "monitor", t.muted))
-      .child(div().text_color(t.foreground).whitespace_nowrap().child(on ?? "This computer")), null, on ? `Machine: ${on}` : "This computer");
-  }
+
 
   folder(t, narrow) {
     const g = this.git, path = g ? tilde(g.root) : tilde(this.loc?.cwd);
@@ -335,21 +326,7 @@ export default class ShipIt extends View {
       has ? () => this.togglePanel("files") : null, g ? `${g.root}${g.sub}` : this.loc?.cwd ?? "");
   }
 
-  branch(t) {
-    const g = this.git;
-    const name = g.detached ? g.sha ?? "HEAD" : g.branch;
-    return this.group("branch", t, h_flex().gap(6).items_center()
-      .child(this.icon("git-branch", t.muted))
-      .child(div().font_semibold().text_color(t.foreground).whitespace_nowrap().child(name))
-      .when(g.detached, (e) => e.child(this.pill("detached", t.ansi3, t)))
-      .when(g.worktree, (e) => e.child(this.pill("worktree", t.muted, t)))
-      .when(g.ahead > 0, (e) => e.child(h_flex().gap(1).items_center().text_color(t.muted).child(this.icon("arrow-up", t.muted, 11)).child(String(g.ahead))))
-      .when(g.behind > 0, (e) => e.child(h_flex().gap(1).items_center().text_color(t.muted).child(this.icon("arrow-down", t.muted, 11)).child(String(g.behind))))
-      .when(!g.upstream && !g.detached, (e) => e.child(div().text_color(t.dim).whitespace_nowrap().child("not pushed")))
-      .when(g.dirty > 0, (e) => e.child(h_flex().gap(4).items_center().text_color(t.ansi3).child(div().size(6).rounded_full().bg(t.ansi3)).child(String(g.dirty)))),
-      (_e, cx) => { cx.write_to_clipboard(name); notify({ title: "Branch copied", body: name, level: "info", timeout: 2 }); },
-      `${name} · click to copy${g.upstream ? ` · ${g.ahead} ahead, ${g.behind} behind upstream` : ""}${g.dirty ? ` · ${g.dirty} uncommitted` : ""}`);
-  }
+
 
   // What the PR waits on, beside the branch: checks, conflicts, open threads,
   // the review. Each opens the review. null when there is nothing to say.
@@ -417,18 +394,19 @@ export default class ShipIt extends View {
     const loc = location(this.loc);
     if (JSON.stringify([loc.cwd, loc.on]) !== this.locKey) this.refreshGit(cx);
     const t = theme(), g = this.git, narrow = this.width < 900, p = this.panel();
-    const s = this.stat, signals = this.showPr() ? this.prSignals(t) : null;
+    // Each is null when there is nothing to show (prButton while the PR loads).
+    const s = this.stat, signals = this.showPr() ? this.prSignals(t) : null, prButton = this.showPr() ? this.prButton(t, narrow) : null;
     return h_flex().id("ship-it").size_full().px(10).items_center().bg(t.chrome).border_b(1).border_color(t.border)
       .text_size(12).text_color(t.foreground).overflow_hidden()
       .on_size_change((size, cx) => { if (Math.abs(size.width - this.width) > 1) { this.width = size.width; cx.notify(); } })
-      .child(this.machine(t))
-      .child(this.sep(t))
-      .child(this.loc?.cwd ? this.folder(t, narrow) : div().text_color(t.dim).child(this.first ? "…" : "No folder"))
-      .when(Boolean(g), (e) => e.child(this.sep(t)).child(this.branch(t)))
-      .when(Boolean(signals), (e) => e.child(this.sep(t)).child(signals))
-      .child(div().flex_1().min_w(8))
-      .when(Boolean(g), (e) => e.child(h_flex().gap(6).flex_none().items_center()
-        .when(this.showPr(), (e) => e.child(this.prButton(t, narrow)))
+      // Left: the folder and what the PR waits on, in what the buttons leave:
+      // the folder's path shortens from its start, so nothing runs under them.
+      // The machine and branch are in Herdr's status bar.
+      .child(h_flex().flex_1().min_w(0).overflow_hidden().items_center()
+        .child(this.loc?.cwd ? this.folder(t, narrow) : div().text_color(t.dim).child(this.first ? "…" : "No folder"))
+        .when(Boolean(signals), (e) => e.child(this.sep(t)).child(signals.flex_none())))
+      .when(Boolean(g), (e) => e.child(h_flex().ml(8).gap(6).flex_none().items_center()
+        .when(Boolean(prButton), (e) => e.child(prButton))
         .when(Boolean(this.changesHost()), (e) => e.child(this.button("pr-changes", t, {
           icon: "file-diff", label: null, on: p.open(this.changesHost()) && shared("ship-it.changes")?.mode !== "dirty", onClick: () => this.toggleChanges(),
           extra: s?.files ? [div().text_color(t.muted).child(`${s.files}`), div().text_color(t.ansi2).child(`+${s.add}`), div().text_color(t.ansi1).child(`−${s.del}`)] : [],

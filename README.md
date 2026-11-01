@@ -10,10 +10,10 @@ https://github.com/user-attachments/assets/5e31d154-aa5b-4854-af67-2ddc534e9a19
 The 40-second showcase: Claude and Codex at work on a real pull request, the
 strip, PR changes, the review, the PR list and Ship.
 
-- **The strip**, under the tab bar, always says where the work is: machine,
-  folder, branch (ahead/behind, uncommitted), and what the pull request waits
-  on: conflicts, checks, open review threads and the review decision. It
-  follows the pane you're in, across spaces and machines.
+- **The strip**, under the tab bar, always says where the work is: the
+  folder, and what the pull request waits on: conflicts, checks, open review
+  threads and the review decision. (The machine and branch are in Herdr's
+  status bar.) It follows the pane you're in, across spaces and machines.
 - **The PR button**, first on the right, is the main action: the PR's
   number, state and the first 30 characters of its title. It opens the
   review. On a branch with no PR it is **Create PR**.

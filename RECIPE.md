@@ -1,8 +1,7 @@
 # Ship it
 
 A launch pad for the work you are doing. A fixed strip under the tab bar
-always says where that work is: which machine, which folder, which branch,
-and which pull request, with its checks, conflicts, open review threads and
+always says where that work is: which folder, and which pull request, with its checks, conflicts, open review threads and
 review state. Four buttons take you from there to shipping it: the **PR**
 (number, state and title; it opens the review), **changes** (the file count
 and `+/−` of what the branch changes since its base, in the side panel; double-click a
@@ -30,18 +29,14 @@ and above the panes. Background `chrome`, a 1px `border` line at the bottom,
 10px horizontal padding. Text 12px in the UI font. Icons 14px, tinted with
 the text colour. Groups are separated by a 1px × 16px `border` rule with
 12px margins. Each clickable group is 28px high, 6px horizontal padding,
-radius 6, `hover` background. Left to right:
+radius 6, `hover` background. The machine and the branch are not on it:
+Herdr's status bar shows both. Left to right:
 
-1. **Machine.** A `monitor` icon and "This computer" for local spaces; a
-   `server` icon and the machine name for remote ones.
-2. **Folder.** A `folder` icon and the repo root with home shortened to `~`.
-   A subfolder of the repo follows in `dim`. Truncates from the left.
-3. **Branch.** A `git-branch` icon and the branch name, semibold. Then, only
-   when they apply: a `detached` pill (amber) with the short SHA as the name;
-   a `worktree` pill (10.5px, 1px `border`, radius 5, `muted`); `↑3` / `↓2`
-   in `muted`; "not pushed" in `dim` when there is no upstream; a 6px amber
-   dot and the uncommitted file count.
-4. **What the PR waits on.** Hidden outside a repo, in a repo without a
+1. **Folder.** A `folder` icon and the repo root with home shortened to `~`.
+   A subfolder of the repo follows in `dim`. Truncates from the left. The
+   folder and item 2 share the width the buttons leave (`flex_1`, `min_w(0)`,
+   overflow hidden), so nothing runs under the buttons.
+2. **What the PR waits on.** Hidden outside a repo, in a repo without a
    remote, on the default branch when it has no PR, and when there is nothing
    to say. Otherwise:
    - **Conflicts** in red with a `git-merge` icon, when GitHub says the PR
@@ -53,8 +48,7 @@ radius 6, `hover` background. Left to right:
      "Review required" (`muted`).
    - With `gh` missing or logged out: "gh unavailable" in `dim`, the
      reason in its tooltip.
-5. A flexible gap.
-6. **Buttons**, 26px high, radius 6, 9px horizontal padding, 1px `border`,
+3. **Buttons**, 8px after the rest, never shrinking: 26px high, radius 6, 9px horizontal padding, 1px `border`,
    `background` fill, `hover` on hover:
    - **PR**, first: the state icon (`git-pull-request`, `-draft`, `-closed`,
      `git-merge`) in the state's color, `#123` in `muted`, a state pill
@@ -268,9 +262,7 @@ a close button.
   dropped. The base and the counts always belong to the branch they were
   computed for. The strip redraws only when what it shows changed.
 - **Clicks.**
-  - Machine: nothing.
   - Folder: toggles the Files panel.
-  - Branch: copies the name and shows a toast.
   - **PR**: opens the review on **Overview** (it has the GitHub link).
     Conflicts, threads, review decision: the same. Checks: on **Checks**.
   - **Create PR**: `gh pr create --web`.
@@ -482,7 +474,7 @@ a close button.
 - **Git reads must not write**: without the read flags `git status`
   refreshes the index, the folder watch sees it, and refreshes loop.
 - **`gh` missing or logged out**, or no git remote: the strip still shows
-  machine, folder and branch. Never toast a poll error.
+  the folder. Never toast a poll error.
 - **Forks** aren't handled: the base is `origin/<base>`.
 - **Remote spaces:** `watchFolder` is local only; they rely on timers.
 - The strip is 40px; the review pane wants about 520px of width.
@@ -540,7 +532,7 @@ a close button.
   the file and its thread.
 - Checks lists failing, pending, passed and skipped in that order; a
   failed Actions check shows its log tail.
-- With `gh` logged out, the strip still shows machine, folder and branch.
+- With `gh` logged out, the strip still shows the folder.
 - With the panel closed and the review pane in another tab, no `git` or
   `gh` process starts for them until they show.
 - The person's layout is unchanged apart from the four blocks.
