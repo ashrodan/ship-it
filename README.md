@@ -18,7 +18,9 @@ strip, PR changes, the review, the PR list and Ship.
   its base, uncommitted work included. Double-click a file to read it whole
   in a pane.
 - **PRs** lists the repo's open pull requests, 10 at a time, newest update
-  first (All, Mine, To review), with a Load more button.
+  first (All, Mine, To review), with a Load more button. A PR's branch
+  button opens it in a worktree space beside your others, checking it out
+  first when it isn't yet.
 - **Ship** merges the pull request, after a confirm that says how, into what,
   and what still looks wrong (failing checks, no approval, open threads).
 - **The review** (click the PR on the strip) opens in the side panel, like
@@ -100,7 +102,8 @@ review opens as a pane to the right instead.
 file · `v` viewed · `n` next unviewed · `e` open the file · `⌘↵` post ·
 `esc` close a drawer or log. Bindable as commands too
 (`ship-it-review.files`, `ship-it-review.next-unviewed`, …). The PRs panel
-has `ship-it-prs.more`, `.refresh`, `.all`, `.mine` and `.review`.
+has `ship-it-prs.more`, `.refresh`, `.all`, `.mine`, `.review` and
+`.worktree-<number>` (open that PR in a worktree space).
 
 ## What it does on your behalf
 
@@ -115,6 +118,7 @@ only on a click:
 | Re-run failed | `gh run rerun --failed` |
 | Ship | `gh pr merge --squash` (or `--merge`/`--rebase`, whichever the repo allows) `--match-head-commit <sha>`, after a confirm. A push after the confirm opened makes GitHub refuse. The branch is kept. |
 | Create | `gh pr create --web` |
+| Worktree (a PR's branch button) | `git fetch origin <branch>`, then `git worktree add --track -b <branch> ~/.herdr/worktrees/<repo>/<branch> origin/<branch>` (a local branch of that name is checked out as it is). A fork's PR: `git fetch origin pull/<n>/head` on a new `pr-<n>`. Then a space opens on it, nested under the repo's. When the checkout exists, its space is shown instead. |
 
 Conflict detection runs `git merge-tree` in memory, only when GitHub reports
 a conflict; it writes loose objects to `.git` and nothing else.
