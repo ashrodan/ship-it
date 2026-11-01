@@ -149,6 +149,26 @@ only when you refresh or post.
 If the whole Herdr window stalls, see `docs/performance.md`: the cause found
 so far is in Herdr's JavaScript JIT, with measurements and next steps.
 
+## Tests
+
+`scripts/test.sh` runs them (Node 22+, git, python3); `scripts/install.sh`
+runs them first, and CI runs them on every pull request. They check the
+mods' logic under plain Node, with a stand-in for Herdr's `herdr` module
+(`test/herdr.mjs`):
+
+- **PRs panel** (`mods/ship-it-prs/prs.js`): check states and counts; a
+  PR's worktree created in real scratch repos (a same-repo PR tracks
+  `origin`, a fork's comes from `pull/<n>/head`, a local branch is never
+  reset); spaces matched to checkouts (the deepest wins); the worktree
+  button's three states.
+- **Changes**: Uncommitted and Since main file lists, and diffs.
+- **Layout script**: a fresh layout, an older install, a second run.
+- **The repo**: the copies `install.sh` makes match their originals, every
+  mod file parses, and no class defines a method twice.
+
+What they can't check is drawing: that needs the Herdr window
+(`herdr-app check`, then look).
+
 ## Layout of this repo
 
 - `mods/ship-it/`: the strip, and `data.js` (git and GitHub facts, shared).
@@ -159,6 +179,7 @@ so far is in Herdr's JavaScript JIT, with measurements and next steps.
   into the mods that use them (a mod can't import from another), installs
   and checks the mods, and with `--layout` runs `scripts/add-to-layout.py`.
   `--sync` only refreshes the copies.
+- `scripts/test.sh` and `test/`: the tests; `.github/workflows/ci.yml` runs them.
 - `scripts/perf/`: the window-stall check (`run.sh`).
 - `scripts/showcase/`: builds the showcase video from window captures.
 - `docs/performance.md`: the stall investigation and its next steps.
