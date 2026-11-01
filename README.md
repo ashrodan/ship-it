@@ -18,9 +18,11 @@ strip, PR changes, the review, the PR list and Ship.
   its base, uncommitted work included. Double-click a file to read it whole
   in a pane.
 - **PRs** lists the repo's open pull requests, 10 at a time, newest update
-  first (All, Mine, To review), with a Load more button. A PR's branch
-  button opens it in a worktree space beside your others, checking it out
-  first when it isn't yet.
+  first (All, Mine, To review), with a Load more button. Click a PR to open
+  its details: branch, checks, review and who is asked, labels, its
+  worktree, and buttons to open it in a worktree, on GitHub, or copy the
+  link. The branch icon on a row opens the worktree in one click: it checks
+  the PR out first when it isn't yet.
 - **Ship** merges the pull request, after a confirm that says how, into what,
   and what still looks wrong (failing checks, no approval, open threads).
 - **The review** (click the PR on the strip) opens in the side panel, like
@@ -103,7 +105,7 @@ file · `v` viewed · `n` next unviewed · `e` open the file · `⌘↵` post ·
 `esc` close a drawer or log. Bindable as commands too
 (`ship-it-review.files`, `ship-it-review.next-unviewed`, …). The PRs panel
 has `ship-it-prs.more`, `.refresh`, `.all`, `.mine`, `.review` and
-`.worktree-<number>` (open that PR in a worktree space).
+`.worktree-<number>` (open that PR in a worktree space) and `.details-<number>`.
 
 ## What it does on your behalf
 

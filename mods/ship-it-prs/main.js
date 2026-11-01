@@ -1,6 +1,7 @@
-// Pull requests: every open PR in the repo, in the side panel. A row opens
-// the PR on GitHub; its number copies the link; its branch button opens the PR
-// in a worktree space. This branch's PR is marked.
+// Pull requests: every open PR in the repo, in the side panel. A row opens to
+// its details and actions (worktree, GitHub, copy link); its number copies the
+// link; its branch button opens the PR in a worktree space. This branch's PR
+// is marked.
 //
 // data.js is a copy: edit mods/ship-it/data.js and run scripts/install.sh.
 
@@ -10,7 +11,7 @@ import { exec, shared, setShared, notify, theme, nextCommand, run, spaces, panes
 import { READ, location, ago, prLook, reviewLook, panelShown, Recent, tilde } from "./data.js";
 
 const ICON = (name) => `mods/ship-it/icons/${name}.svg`;
-const FIELDS = "number,title,author,isDraft,state,url,headRefName,isCrossRepository,baseRefName,reviewDecision,reviewRequests,updatedAt,additions,deletions,statusCheckRollup";
+const FIELDS = "number,title,author,isDraft,state,url,headRefName,isCrossRepository,labels,baseRefName,reviewDecision,reviewRequests,updatedAt,additions,deletions,statusCheckRollup";
 const FILTERS = [["all", "All"], ["mine", "Mine"], ["review", "To review"]];
 const SEARCH = { all: "sort:updated-desc", mine: "author:@me sort:updated-desc", review: "review-requested:@me sort:updated-desc" };
 const PAGE = 10;
@@ -26,6 +27,12 @@ function checkState(rollup) {
     if (["FAILURE", "ERROR", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"].includes(v)) return "fail";
   }
   return rollup?.length ? (pending ? "pending" : "pass") : null;
+}
+// How many checks passed, failed and still run.
+function checkCounts(rollup) {
+  const n = { pass: 0, fail: 0, pending: 0 };
+  for (const c of rollup ?? []) n[checkState([c]) ?? "pass"]++;
+  return n;
 }
 const CHECK = { fail: ["circle-x", "ansi1", "Checks failing"], pending: ["circle-dot", "ansi3", "Checks running"], pass: ["circle-check", "ansi2", "Checks passed"] };
 
@@ -86,6 +93,7 @@ function showSpace(path, on) {
 export default class PullRequests extends View {
   init(_p, cx) {
     this.prs = []; this.filter = "all"; this.last = null; this.limit = PAGE; this.trees = {};
+    this.expanded = null; // the PR whose details show
     // Last list per folder: switching back shows it at once.
     this.memo = new Recent(12);
     this.refresh(cx);
@@ -93,10 +101,11 @@ export default class PullRequests extends View {
     cx.spawn(async (cx) => { for (;;) { this.command(await nextCommand(), cx); cx.notify(); } });
   }
 
-  // ship-it-prs.more, .refresh, .all, .mine, .review, .worktree-<n>: bindable to keys.
+  // ship-it-prs.more, .refresh, .all, .mine, .review, .worktree-<n>, .details-<n>: bindable to keys.
   command(name, cx) {
     const c = String(name).replace(/^ship-it-prs[.:]/, ""), n = /^worktree[-:](\d+)$/.exec(c)?.[1];
     if (n) { const pr = this.prs.find((p) => p.number === Number(n)); if (pr) this.worktree(pr, cx); }
+    else if (/^details[-:]\d+$/.test(c)) { const d = Number(c.split(/[-:]/)[1]); this.expanded = this.expanded === d ? null : d; }
     else if (c === "more") { if (this.more) this.loadMore(cx); }
     else if (c === "refresh") this.refresh(cx, true);
     else if (SEARCH[c]) this.pick(c, cx);
@@ -201,7 +210,8 @@ export default class PullRequests extends View {
     const here = pr.headRefName === this.branch;
     return v_flex().id(`pr-${pr.number}`).flex_none().px(10).py(7).gap(3).rounded(7).cursor_pointer()
       .when(here, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover))
-      .tooltip(`${pr.headRefName} → ${pr.baseRefName} · open on GitHub`).on_click((_e, cx) => cx.open_url(pr.url))
+      .when(this.expanded === pr.number, (e) => e.bg(t.hover))
+      .on_click((_e, cx) => { this.expanded = this.expanded === pr.number ? null : pr.number; cx.notify(); })
       .child(h_flex().gap(8).items_center().min_w(0)
         .child(this.icon(look.icon, t[look.color] ?? t.muted, 13))
         .child(div().flex_1().min_w(0).truncate().text_color(t.foreground).child(pr.title))
@@ -223,7 +233,34 @@ export default class PullRequests extends View {
         })
         .when(Boolean(review) && pr.reviewDecision !== "REVIEW_REQUIRED", (e) => e.child(div().flex_none().text_color(t[review.color]).child(review.label)))
         .child(div().flex_none().text_color(t.ansi2).child(`+${pr.additions}`))
-        .child(div().flex_none().text_color(t.ansi1).child(`−${pr.deletions}`)));
+        .child(div().flex_none().text_color(t.ansi1).child(`−${pr.deletions}`)))
+      .when(this.expanded === pr.number, (e) => e.child(this.details(pr, here, t)));
+  }
+
+  // An open row: what the PR is and what it waits on, then its actions.
+  details(pr, here, t) {
+    const n = checkCounts(pr.statusCheckRollup), review = reviewLook(pr.reviewDecision);
+    const asked = (pr.reviewRequests ?? []).map((r) => r.login ?? r.name ?? r.slug).filter(Boolean);
+    const path = this.trees[localBranch(pr)], busy = this.opening === pr.number;
+    const line = (icon, ...kids) => h_flex().gap(6).items_center().min_w(0).child(this.icon(icon, t.dim, 12)).children(kids);
+    const checks = [[n.fail, "failed", "ansi1"], [n.pending, "running", "ansi3"], [n.pass, "passed", "ansi2"]].filter(([k]) => k)
+      .map(([k, what, color], i) => div().flex_none().text_color(t[color]).child(`${i ? "· " : ""}${k} ${what}`));
+    const button = (id, icon, label, primary, click) => h_flex().id(`pr-${id}-${pr.number}`).h(26).px(9).gap(6).items_center().flex_none().rounded(6).cursor_pointer().text_size(12)
+      .when(primary, (e) => e.bg(t.accent).text_color(t.background)).when(!primary, (e) => e.border_1().border_color(t.border).text_color(t.foreground).hover((s) => s.bg(t.raised)))
+      .on_click((_e, cx) => { cx.stop_propagation(); click(cx); })
+      .child(this.icon(icon, primary ? t.background : t.muted, 12)).child(label);
+    return v_flex().pl(21).pt(6).gap(5).text_size(11).text_color(t.muted)
+      .child(div().text_size(12).text_color(t.foreground).child(pr.title))
+      .child(line("git-branch", div().min_w(0).truncate().child(`${pr.headRefName} → ${pr.baseRefName}`)))
+      .child(line("square-check", ...(checks.length ? checks : [div().child("No checks")])))
+      .child(line("message-square", div().flex_none().when(Boolean(review), (e) => e.text_color(t[review?.color] ?? t.muted)).child(review?.label ?? "No review yet"),
+        ...(asked.length ? [div().min_w(0).truncate().child(`· asked: ${asked.join(", ")}`)] : [])))
+      .when((pr.labels ?? []).length > 0, (e) => e.child(line("circle-dot", div().min_w(0).truncate().child(pr.labels.map((l) => l.name).join(", ")))))
+      .child(line("folder", div().min_w(0).truncate().child(here ? "Checked out here" : path ? tilde(path) : "No worktree yet")))
+      .child(h_flex().pt(3).gap(6).flex_wrap()
+        .when(!here, (e) => e.child(button("open-tree", busy ? "loader" : "git-branch", busy ? "Opening…" : path ? "Go to worktree" : "Open in worktree", true, (cx) => this.worktree(pr, cx))))
+        .child(button("github", "external-link", "GitHub", false, (cx) => cx.open_url(pr.url)))
+        .child(button("copy", "copy", "Copy link", false, (cx) => { cx.write_to_clipboard(pr.url); notify({ title: `#${pr.number} link copied`, body: pr.url, level: "info", timeout: 2 }); })));
   }
 
   render(cx) {
