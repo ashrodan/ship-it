@@ -11,11 +11,14 @@ The 40-second showcase: Claude and Codex at work on a real pull request, the
 strip, PR changes, the review, the PR list and Ship.
 
 - **The strip**, under the tab bar, always says where the work is: machine,
-  folder, branch (ahead/behind, uncommitted), and the pull request with its
-  state, conflicts, checks, open review threads and review decision. It
+  folder, branch (ahead/behind, uncommitted), and what the pull request waits
+  on: conflicts, checks, open review threads and the review decision. It
   follows the pane you're in, across spaces and machines.
-- **PR changes** opens the side panel on everything the branch changes since
-  its base, uncommitted work included. Double-click a file to read it whole
+- **The PR button**, first on the right, is the main action: the PR's
+  number, state and the first 30 characters of its title. It opens the
+  review. On a branch with no PR it is **Create PR**.
+- **The changes button** (its file count and `+/−`) opens the side panel on
+  everything the branch changes since its base, uncommitted work included. Double-click a file to read it whole
   in a pane.
 - **PRs** lists the repo's open pull requests, 10 at a time, newest update
   first (All, Mine, To review), with a Load more button. Click a PR to open
@@ -27,7 +30,7 @@ strip, PR changes, the review, the PR list and Ship.
   in one click: an accent branch, an accent folder, or a dim branch-plus.
 - **Ship** merges the pull request, after a confirm that says how, into what,
   and what still looks wrong (failing checks, no approval, open threads).
-- **The review** (click the PR on the strip) opens in the side panel, like
+- **The review** (the PR button on the strip) opens in the side panel, like
   PR changes, and has three tabs:
   **Overview** (description, conversation, conflicts with a copyable list,
   open threads, a comment box), **Files** (the diff, "viewed" marks, inline

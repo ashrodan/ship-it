@@ -3,8 +3,9 @@
 A launch pad for the work you are doing. A fixed strip under the tab bar
 always says where that work is: which machine, which folder, which branch,
 and which pull request, with its checks, conflicts, open review threads and
-review state. Three buttons take you from there to shipping it: **PR changes**
-(what the branch changes since its base, in the side panel; double-click a
+review state. Four buttons take you from there to shipping it: the **PR**
+(number, state and title; it opens the review), **changes** (the file count
+and `+/−` of what the branch changes since its base, in the side panel; double-click a
 file to open it whole in a pane), **PRs** (the repo's open pull requests)
 and **Ship** (merges the PR, after a confirm). The PR's state, checks and
 threads open the review in the side panel (a pane to the right when the
@@ -40,13 +41,9 @@ radius 6, `hover` background. Left to right:
    a `worktree` pill (10.5px, 1px `border`, radius 5, `muted`); `↑3` / `↓2`
    in `muted`; "not pushed" in `dim` when there is no upstream; a 6px amber
    dot and the uncommitted file count.
-4. **PR.** Hidden outside a repo, in a repo without a remote, and on the
-   default branch when it has no PR. Otherwise:
-   - The state icon (`git-pull-request`, `-draft`, `-closed`, `git-merge`)
-     and `#123` in `muted`.
-   - A state pill (the title is this group's hover text): **Open** (`ansi2`),
-     **Draft** (`muted`), **Merged** (`ansi5`), **Closed** (`ansi1`). The pill
-     is 18px, radius 9, 10.5px semibold, tinted background at 13% (`22` alpha).
+4. **What the PR waits on.** Hidden outside a repo, in a repo without a
+   remote, on the default branch when it has no PR, and when there is nothing
+   to say. Otherwise:
    - **Conflicts** in red with a `git-merge` icon, when GitHub says the PR
      conflicts with its base.
    - Checks: `circle-check` n (green), `circle-x` n (red, failed and
@@ -54,14 +51,20 @@ radius 6, `hover` background. Left to right:
    - Open review threads: `message-square` n in `accent`.
    - The review decision: "Approved" (green), "Changes requested" (red),
      "Review required" (`muted`).
-   - A 22px `external-link` button.
-   - With no PR on a feature branch: "No pull request" in `dim` and a
-     **Create** link in `accent`. With `gh` missing or logged out: "gh
-     unavailable" in `dim`, the reason in its tooltip.
+   - With `gh` missing or logged out: "gh unavailable" in `dim`, the
+     reason in its tooltip.
 5. A flexible gap.
 6. **Buttons**, 26px high, radius 6, 9px horizontal padding, 1px `border`,
    `background` fill, `hover` on hover:
-   - **PR changes** (`file-diff`) with the branch's file count (`muted`),
+   - **PR**, first: the state icon (`git-pull-request`, `-draft`, `-closed`,
+     `git-merge`) in the state's color, `#123` in `muted`, a state pill
+     (**Open** `ansi2`, **Draft** `muted`, **Merged** `ansi5`, **Closed**
+     `ansi1`; 18px, radius 9, 10.5px semibold, tinted background at 13%,
+     `22` alpha), and the title's first 30 characters (then `…`), hidden
+     when the strip is narrow. The full title is its hover text. While the
+     review panel is open on this repo: `accent` border, `selected` fill.
+     With no PR on a feature branch: **Create PR** (`git-pull-request`).
+   - **Changes** (`file-diff`, no label) with the branch's file count (`muted`),
      `+add` (green) and `−del` (red); the counts hide when nothing differs.
      While the PR changes panel is open: `accent` border, `selected` fill.
      (Herdr's own Changes, for uncommitted work, stays in the tab bar.)
@@ -262,14 +265,12 @@ a close button.
   - Machine: nothing.
   - Folder: toggles the Files panel.
   - Branch: copies the name and shows a toast.
-  - `#123`: copies the PR's link and shows a toast.
-  - Title, state, conflicts, threads, review decision: open the review
-    pane on **Overview**. Checks: on **Checks**.
-  - The `external-link` button: opens the PR in the browser.
-  - Create: `gh pr create --web`.
-  - **PR changes**: toggles the PR changes panel.
-  - **PRs**: toggles the Pull requests panel. A row opens the PR on GitHub;
-    its number copies the link. Filters: All, Mine, To review.
+  - **PR**: opens the review on **Overview** (it has the GitHub link).
+    Conflicts, threads, review decision: the same. Checks: on **Checks**.
+  - **Create PR**: `gh pr create --web`.
+  - **Changes**: toggles the PR changes panel.
+  - **PRs**: toggles the Pull requests panel. A row opens its details and
+    actions; its number copies the link. Filters: All, Mine, To review.
   - **Ship**: asks first (Herdr's `confirm` dialog: how it merges, what
     into, and any failing or running checks, missing approval or open
     threads), then `gh pr merge <n> --squash|--merge|--rebase
