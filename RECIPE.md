@@ -266,7 +266,7 @@ a close button.
 - **Clicks.**
   - Folder: toggles the Files panel.
   - **PR**: opens the review on **Overview** (it has the GitHub link).
-    Conflicts, threads, review decision: the same. Checks: on **Checks**.
+    Conflicts, threads, review decision: the same. **CI**: on **Checks**.
   - **Create PR**: `gh pr create --web`.
   - **Changes**: opens the Changes panel on Since <base>; a second click
     closes it.
