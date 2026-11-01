@@ -1,10 +1,10 @@
 # Ship it
 
 A launch pad for the work you are doing. A fixed strip under the tab bar
-always says where that work is: which machine, which folder, which branch,
-and which pull request, with its checks, conflicts, open review threads and
-review state. Three buttons take you from there to shipping it: **PR changes**
-(what the branch changes since its base, in the side panel; double-click a
+always says where that work is: which folder, and which pull request, with its checks, conflicts, open review threads and
+review state. Four buttons take you from there to shipping it: the **PR**
+(number, state and title; it opens the review), **changes** (the file count
+and `+/−` of what the branch changes since its base, in the side panel; double-click a
 file to open it whole in a pane), **PRs** (the repo's open pull requests)
 and **Ship** (merges the PR, after a confirm). The PR's state, checks and
 threads open the review in the side panel (a pane to the right when the
@@ -29,44 +29,45 @@ and above the panes. Background `chrome`, a 1px `border` line at the bottom,
 10px horizontal padding. Text 12px in the UI font. Icons 14px, tinted with
 the text colour. Groups are separated by a 1px × 16px `border` rule with
 12px margins. Each clickable group is 28px high, 6px horizontal padding,
-radius 6, `hover` background. Left to right:
+radius 6, `hover` background. The machine and the branch are not on it:
+Herdr's status bar shows both. Left to right:
 
-1. **Machine.** A `monitor` icon and "This computer" for local spaces; a
-   `server` icon and the machine name for remote ones.
-2. **Folder.** A `folder` icon and the repo root with home shortened to `~`.
-   A subfolder of the repo follows in `dim`. Truncates from the left.
-3. **Branch.** A `git-branch` icon and the branch name, semibold. Then, only
-   when they apply: a `detached` pill (amber) with the short SHA as the name;
-   a `worktree` pill (10.5px, 1px `border`, radius 5, `muted`); `↑3` / `↓2`
-   in `muted`; "not pushed" in `dim` when there is no upstream; a 6px amber
-   dot and the uncommitted file count.
-4. **PR.** Hidden outside a repo, in a repo without a remote, and on the
-   default branch when it has no PR. Otherwise:
-   - The state icon (`git-pull-request`, `-draft`, `-closed`, `git-merge`)
-     and `#123` in `muted`.
-   - A state pill (the title is this group's hover text): **Open** (`ansi2`),
-     **Draft** (`muted`), **Merged** (`ansi5`), **Closed** (`ansi1`). The pill
-     is 18px, radius 9, 10.5px semibold, tinted background at 13% (`22` alpha).
+1. **Repo.** A 26px button like the others: `git-pull-request`, the repo's
+   name (its main checkout's folder, also in a worktree) semibold, and
+   "n PRs" in `muted`. Toggles the Pull requests panel; `accent` border
+   while it is open. Without a GitHub remote, only the name, not clickable.
+   Then, only in a worktree or a subfolder, the **folder**: a `folder` icon and the repo root with home shortened to `~`.
+   A subfolder of the repo follows in `dim`. Truncates from the left. The
+   folder and item 2 share the width the buttons leave (`flex_1`, `min_w(0)`,
+   overflow hidden), so nothing runs under the buttons.
+2. **What the PR waits on.** Hidden outside a repo, in a repo without a
+   remote, on the default branch when it has no PR, and when there is nothing
+   to say. Otherwise:
    - **Conflicts** in red with a `git-merge` icon, when GitHub says the PR
      conflicts with its base.
-   - Checks: `circle-check` n (green), `circle-x` n (red, failed and
-     cancelled), `circle-dot` n (amber, pending). Only non-zero counts show.
    - Open review threads: `message-square` n in `accent`.
    - The review decision: "Approved" (green), "Changes requested" (red),
      "Review required" (`muted`).
-   - A 22px `external-link` button.
-   - With no PR on a feature branch: "No pull request" in `dim` and a
-     **Create** link in `accent`. With `gh` missing or logged out: "gh
-     unavailable" in `dim`, the reason in its tooltip.
-5. A flexible gap.
-6. **Buttons**, 26px high, radius 6, 9px horizontal padding, 1px `border`,
+   - With `gh` missing or logged out: "gh unavailable" in `dim`, the
+     reason in its tooltip.
+3. **Buttons**, 8px after the rest, never shrinking: 26px high, radius 6, 9px horizontal padding, 1px `border`,
    `background` fill, `hover` on hover:
-   - **PR changes** (`file-diff`) with the branch's file count (`muted`),
+   - **PR**, first: the state icon (`git-pull-request`, `-draft`, `-closed`,
+     `git-merge`) in the state's color, `#123` in `muted`, a state pill
+     (**Open** `ansi2`, **Draft** `muted`, **Merged** `ansi5`, **Closed**
+     `ansi1`; 18px, radius 9, 10.5px semibold, tinted background at 13%,
+     `22` alpha), and the title's first 30 characters (then `…`), hidden
+     when the strip is narrow. The full title is its hover text. While the
+     review panel is open on this repo: `accent` border, `selected` fill.
+     With no PR on a feature branch: **Create PR** (`git-pull-request`).
+   - **Changes** (`file-diff`, no label) with the branch's file count (`muted`),
      `+add` (green) and `−del` (red); the counts hide when nothing differs.
-     While the PR changes panel is open: `accent` border, `selected` fill.
+     While Changes is open on Since main: `accent` border, `selected` fill.
      (Herdr's own Changes, for uncommitted work, stays in the tab bar.)
-   - **PRs** (`git-pull-request`) with the open count, when the repo has a
-     GitHub remote. Toggles the Pull requests panel.
+   - **CI**: `circle-check` n (green), `circle-x` n (red, failed and
+     cancelled), `circle-dot` n (amber, pending); only non-zero counts show,
+     and the button hides when there are none (no checks, or only skipped).
+     Opens the review on **Checks**; `accent` border while it is open there.
    - **Ship** (`rocket`), solid (`solid` / `solid_foreground`) when the PR
      can merge; quiet, with the reason as its hover text, when it can't
      (no PR, draft, conflicts, merged, closed). "Shipping…" while the merge
@@ -75,15 +76,21 @@ radius 6, `hover` background. Left to right:
 
 Narrower than 900px, the folder shows only the repo name.
 
-### The PR changes panel (`ship-it-changes`)
+### The Changes panel (`ship-it-changes`)
 
 A side panel in the `panel-body` stack, drawn exactly like Herdr's Changes
-panel, but for the branch, not the working tree. Double-click a file (or its
+panel, and in its place: the layout's `changes` block holds it, so the tab
+bar's Changes button opens it. Two views, kept in shared
+`ship-it.changes` (`{mode: "dirty" | "branch"}`): **Uncommitted** (the
+working tree against `HEAD`, with Herdr's commit box: a message input and
+**Commit**, which runs `git add -A` then `git commit -m`) and **Since
+<base>** (what the branch changes since its base). The strip's changes button
+opens it on Since <base>. Double-click a file (or its
 open icon) to open it whole, read-only, in a `ship-it-file` pane; the review
 pane's Files view has the same as an **Open** button and `e`:
 
-- Header: "PR changes", an `n files` chip, `since origin/main` (`dim`),
-  `+add −del`.
+- Header: "Changes", the two views as a segmented control (Uncommitted,
+  Since main), an `n files` chip, `+add −del`.
 - File list (at most 200px): status letter (A green, D/U red, M amber),
   folder in `dim` and name, an amber dot when the file also has uncommitted
   edits, `+n −n`. The first file is open until you pick another; a click
@@ -259,17 +266,14 @@ a close button.
   dropped. The base and the counts always belong to the branch they were
   computed for. The strip redraws only when what it shows changed.
 - **Clicks.**
-  - Machine: nothing.
   - Folder: toggles the Files panel.
-  - Branch: copies the name and shows a toast.
-  - `#123`: copies the PR's link and shows a toast.
-  - Title, state, conflicts, threads, review decision: open the review
-    pane on **Overview**. Checks: on **Checks**.
-  - The `external-link` button: opens the PR in the browser.
-  - Create: `gh pr create --web`.
-  - **PR changes**: toggles the PR changes panel.
-  - **PRs**: toggles the Pull requests panel. A row opens the PR on GitHub;
-    its number copies the link. Filters: All, Mine, To review.
+  - **PR**: opens the review on **Overview** (it has the GitHub link).
+    Conflicts, threads, review decision: the same. **CI**: on **Checks**.
+  - **Create PR**: `gh pr create --web`.
+  - **Changes**: opens the Changes panel on Since <base>; a second click
+    closes it.
+  - **Repo** (first on the left): toggles the Pull requests panel. A row opens its details and
+    actions; its number copies the link. Filters: All, Mine, To review.
   - **Ship**: asks first (Herdr's `confirm` dialog: how it merges, what
     into, and any failing or running checks, missing approval or open
     threads), then `gh pr merge <n> --squash|--merge|--rebase
@@ -284,7 +288,7 @@ a close button.
 
 ### Panels and the file pane
 
-- **PR changes:** a click on a file shows its diff; a click on the open
+- **Changes:** a click on a file shows its diff; a click on the open
   file closes it; a double-click, or the open icon on the selected row,
   opens it in the file pane. The file pane is this tab's if it has one
   (it switches to the new file), else a new one split to the right.
@@ -367,7 +371,7 @@ a close button.
     diff rows, log tail), a copy of `data.js` and `icons/`, `mod.json`
     `{"place": "none", "title": "Review"}`.
   - `mods/ship-it-changes/`: `main.js` (the panel), copies of `data.js`
-    and `files.js`, `mod.json` `{"place": "none", "title": "PR changes"}`.
+    and `files.js`, `mod.json` `{"place": "none", "title": "Changes"}`.
   - `mods/ship-it-prs/`: `main.js` (the panel), a copy of `data.js`,
     `mod.json` `{"place": "none", "title": "Pull requests"}`.
   - `mods/ship-it-file/`: `main.js` (the file pane), `mod.json`
@@ -474,7 +478,7 @@ a close button.
 - **Git reads must not write**: without the read flags `git status`
   refreshes the index, the folder watch sees it, and refreshes loop.
 - **`gh` missing or logged out**, or no git remote: the strip still shows
-  machine, folder and branch. Never toast a poll error.
+  the folder. Never toast a poll error.
 - **Forks** aren't handled: the base is `origin/<base>`.
 - **Remote spaces:** `watchFolder` is local only; they rely on timers.
 - The strip is 40px; the review pane wants about 520px of width.
@@ -532,7 +536,7 @@ a close button.
   the file and its thread.
 - Checks lists failing, pending, passed and skipped in that order; a
   failed Actions check shows its log tail.
-- With `gh` logged out, the strip still shows machine, folder and branch.
+- With `gh` logged out, the strip still shows the folder.
 - With the panel closed and the review pane in another tab, no `git` or
   `gh` process starts for them until they show.
 - The person's layout is unchanged apart from the four blocks.

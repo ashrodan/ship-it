@@ -105,6 +105,8 @@ export async function gitFacts(cwd, on) {
     ahead: ahead || 0, behind: behind || 0,
     dirty: status.code === 0 ? status.stdout.split("\0").filter(Boolean).length : 0,
     worktree: Boolean(gitDir && commonDir && abs(gitDir) !== abs(commonDir)),
+    // The repo's name: its main checkout's folder, also from a worktree.
+    repo: (commonDir ? abs(commonDir).replace(/\/\.git\/?$/, "") : root).split("/").pop(),
   };
 }
 

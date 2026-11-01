@@ -10,19 +10,37 @@ https://github.com/user-attachments/assets/5e31d154-aa5b-4854-af67-2ddc534e9a19
 The 40-second showcase: Claude and Codex at work on a real pull request, the
 strip, PR changes, the review, the PR list and Ship.
 
-- **The strip**, under the tab bar, always says where the work is: machine,
-  folder, branch (ahead/behind, uncommitted), and the pull request with its
-  state, conflicts, checks, open review threads and review decision. It
-  follows the pane you're in, across spaces and machines.
-- **PR changes** opens the side panel on everything the branch changes since
-  its base, uncommitted work included. Double-click a file to read it whole
+- **The strip**, under the tab bar, always says where the work is: first
+  the repo's name with its open PR count (a click opens the PRs list), the
+  folder when it says more (a worktree, a subfolder), and what the pull
+  request waits on: conflicts, checks, open review
+  threads and the review decision. (The machine and branch are in Herdr's
+  status bar.) It follows the pane you're in, across spaces and machines.
+- **CI**, on the right between the changes and PRs buttons: the PR's checks
+  as passed, failed and running counts. It opens the review on Checks.
+- **The PR button**, first on the right, is the main action: the PR's
+  number, state and the first 30 characters of its title. It opens the
+  review. On a branch with no PR it is **Create PR**.
+- **Changes** is one side panel with two views. **Uncommitted** is the
+  working tree against `HEAD`, with a commit box (`git add -A`, then
+  `git commit -m`, as Herdr's own Changes panel does). **Since main** is
+  everything the branch changes since its base, uncommitted work included.
+  It takes the place of Herdr's Changes panel, so the tab bar's Changes
+  button opens it. The strip's changes button (its file count and `+/−`)
+  opens it on Since main. Double-click a file to read it whole
   in a pane.
-- **PRs** lists the repo's open pull requests, 10 at a time, newest update
-  first (All, Mine, To review), with a Load more button.
+- **PRs** (the repo's name on the strip) lists the repo's open pull requests, 10 at a time, newest update
+  first (All, Mine, To review), with a Load more button. Click a PR to open
+  its details: branch, checks, review and who is asked, labels, its
+  worktree, and buttons for its worktree, GitHub, and copying the link. The
+  worktree button says what a click does: **Go to space** (a space is open on
+  its checkout), **Open worktree** (checked out, no space yet) or **Create
+  worktree** (checks the PR out first). The icon at a row's end does the same
+  in one click: an accent branch, an accent folder, or a dim branch-plus.
 - **Ship** merges the pull request, after a confirm that says how, into what,
   and what still looks wrong (failing checks, no approval, open threads).
-- **The review** (click the PR on the strip) opens in the side panel, like
-  PR changes, and has three tabs:
+- **The review** (the PR button on the strip) opens in the side panel, like
+  Changes, and has three tabs:
   **Overview** (description, conversation, conflicts with a copyable list,
   open threads, a comment box), **Files** (the diff, "viewed" marks, inline
   threads with Reply and Resolve) and **Checks** (failing first, the failed
@@ -91,7 +109,7 @@ Without `--layout`, the script only installs the mods; add the blocks by hand
    { "id": "ship-it-prs", "type": "block", "content": { "mod": "ship-it-prs" } }
    ```
 
-Without the panel blocks, the PR changes and PRs buttons hide, and the
+Without the panel blocks, the changes and PRs buttons hide, and the
 review opens as a pane to the right instead.
 
 ## Keys (review pane)
@@ -100,7 +118,8 @@ review opens as a pane to the right instead.
 file · `v` viewed · `n` next unviewed · `e` open the file · `⌘↵` post ·
 `esc` close a drawer or log. Bindable as commands too
 (`ship-it-review.files`, `ship-it-review.next-unviewed`, …). The PRs panel
-has `ship-it-prs.more`, `.refresh`, `.all`, `.mine` and `.review`.
+has `ship-it-prs.more`, `.refresh`, `.all`, `.mine`, `.review` and
+`.worktree-<number>` (open that PR in a worktree space) and `.details-<number>`.
 
 ## What it does on your behalf
 
@@ -115,6 +134,7 @@ only on a click:
 | Re-run failed | `gh run rerun --failed` |
 | Ship | `gh pr merge --squash` (or `--merge`/`--rebase`, whichever the repo allows) `--match-head-commit <sha>`, after a confirm. A push after the confirm opened makes GitHub refuse. The branch is kept. |
 | Create | `gh pr create --web` |
+| Worktree (a PR's branch button) | `git fetch origin <branch>`, then `git worktree add --track -b <branch> ~/.herdr/worktrees/<repo>/<branch> origin/<branch>` (a local branch of that name is checked out as it is). A fork's PR: `git fetch origin pull/<n>/head` on a new `pr-<n>`. Then a space opens on it, nested under the repo's. When the checkout exists, its space is shown instead. |
 
 Conflict detection runs `git merge-tree` in memory, only when GitHub reports
 a conflict; it writes loose objects to `.git` and nothing else.
@@ -133,6 +153,26 @@ only when you refresh or post.
 If the whole Herdr window stalls, see `docs/performance.md`: the cause found
 so far is in Herdr's JavaScript JIT, with measurements and next steps.
 
+## Tests
+
+`scripts/test.sh` runs them (Node 22+, git, python3); `scripts/install.sh`
+runs them first, and CI runs them on every pull request. They check the
+mods' logic under plain Node, with a stand-in for Herdr's `herdr` module
+(`test/herdr.mjs`):
+
+- **PRs panel** (`mods/ship-it-prs/prs.js`): check states and counts; a
+  PR's worktree created in real scratch repos (a same-repo PR tracks
+  `origin`, a fork's comes from `pull/<n>/head`, a local branch is never
+  reset); spaces matched to checkouts (the deepest wins); the worktree
+  button's three states.
+- **Changes**: Uncommitted and Since main file lists, and diffs.
+- **Layout script**: a fresh layout, an older install, a second run.
+- **The repo**: the copies `install.sh` makes match their originals, every
+  mod file parses, and no class defines a method twice.
+
+What they can't check is drawing: that needs the Herdr window
+(`herdr-app check`, then look).
+
 ## Layout of this repo
 
 - `mods/ship-it/`: the strip, and `data.js` (git and GitHub facts, shared).
@@ -143,6 +183,7 @@ so far is in Herdr's JavaScript JIT, with measurements and next steps.
   into the mods that use them (a mod can't import from another), installs
   and checks the mods, and with `--layout` runs `scripts/add-to-layout.py`.
   `--sync` only refreshes the copies.
+- `scripts/test.sh` and `test/`: the tests; `.github/workflows/ci.yml` runs them.
 - `scripts/perf/`: the window-stall check (`run.sh`).
 - `scripts/showcase/`: builds the showcase video from window captures.
 - `docs/performance.md`: the stall investigation and its next steps.

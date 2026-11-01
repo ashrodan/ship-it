@@ -1,8 +1,10 @@
-// Ship it: a fixed strip under the tab bar that says where the work is (machine,
-// folder, branch, pull request, its checks and review) and takes it from there
-// to shipped: PR changes opens what the branch changes in the side panel,
-// PRs lists the repo's open pull requests, and Ship merges this one (after a
-// confirm). The PR's number, state and checks open the ship-it-review pane. It follows the focused pane.
+// Ship it: a fixed strip under the tab bar that says where the work is (the
+// folder, and what the pull request waits on: checks, threads, review) and takes it from there
+// to shipped. On the right: the PR button (number, state, title) opens the
+// ship-it-review pane, the changes button what the branch changes in the side
+// panel, PRs the repo's open pull requests, and Ship merges this one (after a
+// confirm). Checks, threads and the review beside the branch open the review
+// too. It follows the focused pane.
 
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
@@ -173,6 +175,22 @@ export default class ShipIt extends View {
     return { panel, body, has, open: (id) => panel && !panel.hidden && body?.active === id };
   }
 
+  // The block that holds the Changes panel: "changes" when it took the place
+  // of Herdr's own, else "ship-it-changes"; null without one.
+  changesHost() {
+    return this.panel().body?.children?.find((c) => c.content?.mod === "ship-it-changes")?.id ?? null;
+  }
+
+  // The changes button: Changes on its branch view (since the base). Open on
+  // that view already, it closes.
+  toggleChanges() {
+    const id = this.changesHost(), p = this.panel(), branch = shared("ship-it.changes")?.mode !== "dirty";
+    if (!id) return;
+    if (p.open(id) && branch) { run("layout.hide", { id: "panel" }); return; }
+    if (!branch) setShared("ship-it.changes", { mode: "branch", at: Date.now() });
+    run("layout.select", { stack: "panel-body", child: id }); run("layout.show", { id: "panel" });
+  }
+
   togglePanel(id) {
     const p = this.panel();
     if (!p.has(id)) return;
@@ -267,10 +285,6 @@ export default class ShipIt extends View {
 
   sep(t) { return div().w(1).h(16).mx(12).flex_none().bg(t.border); }
 
-  pill(text, color, t) {
-    return div().h(18).px(6).flex_none().flex().items_center().rounded(5).border_1().border_color(t.border).text_size(10.5).text_color(color).child(text);
-  }
-
   // A clickable group: hover lifts it a little.
   group(id, t, el, onClick, tip) {
     return h_flex().id(id).h(28).px(6).gap(6).min_w(0).items_center().rounded(6)
@@ -284,7 +298,7 @@ export default class ShipIt extends View {
       .border_1().border_color(on ? t.accent : t.border).bg(on ? t.selected : t.background)
       .hover((s) => s.bg(t.hover)).on_click(onClick).when(Boolean(tip), (e) => e.tooltip(tip))
       .child(this.icon(icon, on ? t.accent : t.muted, 13))
-      .child(div().text_color(t.foreground).child(label))
+      .when(Boolean(label), (e) => e.child(div().text_color(t.foreground).child(label)))
       .children(extra ?? []);
   }
 
@@ -299,12 +313,7 @@ export default class ShipIt extends View {
       .child(div().text_color(block ? t.dim : t.solid_foreground).font_semibold().child(this.merging ? "Shipping…" : merged ? "Shipped" : "Ship"));
   }
 
-  machine(t) {
-    const on = this.loc?.on;
-    return this.group("machine", t, h_flex().gap(6).items_center()
-      .child(this.icon(on ? "server" : "monitor", t.muted))
-      .child(div().text_color(t.foreground).whitespace_nowrap().child(on ?? "This computer")), null, on ? `Machine: ${on}` : "This computer");
-  }
+
 
   folder(t, narrow) {
     const g = this.git, path = g ? tilde(g.root) : tilde(this.loc?.cwd);
@@ -317,56 +326,69 @@ export default class ShipIt extends View {
       has ? () => this.togglePanel("files") : null, g ? `${g.root}${g.sub}` : this.loc?.cwd ?? "");
   }
 
-  branch(t) {
-    const g = this.git;
-    const name = g.detached ? g.sha ?? "HEAD" : g.branch;
-    return this.group("branch", t, h_flex().gap(6).items_center()
-      .child(this.icon("git-branch", t.muted))
-      .child(div().font_semibold().text_color(t.foreground).whitespace_nowrap().child(name))
-      .when(g.detached, (e) => e.child(this.pill("detached", t.ansi3, t)))
-      .when(g.worktree, (e) => e.child(this.pill("worktree", t.muted, t)))
-      .when(g.ahead > 0, (e) => e.child(h_flex().gap(1).items_center().text_color(t.muted).child(this.icon("arrow-up", t.muted, 11)).child(String(g.ahead))))
-      .when(g.behind > 0, (e) => e.child(h_flex().gap(1).items_center().text_color(t.muted).child(this.icon("arrow-down", t.muted, 11)).child(String(g.behind))))
-      .when(!g.upstream && !g.detached, (e) => e.child(div().text_color(t.dim).whitespace_nowrap().child("not pushed")))
-      .when(g.dirty > 0, (e) => e.child(h_flex().gap(4).items_center().text_color(t.ansi3).child(div().size(6).rounded_full().bg(t.ansi3)).child(String(g.dirty)))),
-      (_e, cx) => { cx.write_to_clipboard(name); notify({ title: "Branch copied", body: name, level: "info", timeout: 2 }); },
-      `${name} · click to copy${g.upstream ? ` · ${g.ahead} ahead, ${g.behind} behind upstream` : ""}${g.dirty ? ` · ${g.dirty} uncommitted` : ""}`);
-  }
 
-  pullRequest(t, narrow) {
+
+  // What the PR waits on, beside the folder: conflicts, open threads, the
+  // review (its checks are a button on the right). Each opens the review. null when there is nothing to say.
+  prSignals(t) {
     const p = this.pr;
     if (!p) return this.group("pr", t, div().text_color(t.dim).child("…"));
     if (p.kind === "unavailable") return this.group("pr", t, h_flex().gap(6).items_center().child(this.icon("git-pull-request", t.dim)).child(div().text_color(t.dim).child("gh unavailable")), null, p.reason);
-    if (p.kind === "none") {
-      return h_flex().gap(4).items_center()
-        .child(this.group("pr", t, h_flex().gap(6).items_center().child(this.icon("git-pull-request", t.dim)).child(div().text_color(t.dim).whitespace_nowrap().child("No pull request"))))
-        .child(div().id("pr-create").h(22).px(8).flex().items_center().rounded(5).cursor_pointer().text_color(t.accent).hover((s) => s.bg(t.hover))
-          .child("Create").on_click(() => { const g = this.git; exec("gh", ["pr", "create", "--web"], { cwd: g.root, on: g.on }); }));
-    }
-    const pr = p.pr, look = prLook(pr), review = reviewLook(pr.reviewDecision), c = tally(this.checks);
-    const color = t[look.color] ?? t.muted;
-    const count = (icon, n, col) => n > 0 ? h_flex().gap(3).items_center().text_color(col).child(this.icon(icon, col, 12)).child(String(n)) : null;
-    const checksEl = this.checks?.length ? this.group("checks", t, h_flex().gap(8).items_center()
-      .children([count("circle-check", c.pass, t.ansi2), count("circle-x", c.fail + c.cancel, t.ansi1), count("circle-dot", c.pending, t.ansi3)].filter(Boolean)),
-      () => this.openReview("checks"), `${c.pass} passed · ${c.fail} failed · ${c.pending} pending · ${c.skipping} skipped`) : null;
+    if (p.kind === "none") return null;
+    const pr = p.pr, review = reviewLook(pr.reviewDecision);
     const open = (this.threads ?? []).filter((th) => !th.resolved).length;
     const conflicted = pr.mergeable === "CONFLICTING" || pr.mergeStateStatus === "DIRTY";
+    if (!conflicted && !open && !review) return null;
     return h_flex().gap(2).min_w(0).items_center()
-      .child(this.group("pr-number", t, h_flex().gap(6).items_center()
-        .child(this.icon(look.icon, color))
-        .child(div().flex_none().text_color(t.muted).child(`#${pr.number}`)),
-        (_e, cx) => { cx.write_to_clipboard(pr.url); notify({ title: `#${pr.number} link copied`, body: pr.url, level: "info", timeout: 2 }); }, "Copy link"))
-      .child(this.group("pr", t, h_flex().gap(6).min_w(0).items_center()
-        .child(div().h(18).px(7).flex_none().flex().items_center().rounded(9).bg(color + "22").text_size(10.5).font_semibold().text_color(color).child(look.label)),
-        () => this.openReview("overview"), `#${pr.number} ${pr.title}`))
       .when(conflicted, (e) => e.child(this.group("conflicts", t, h_flex().gap(4).items_center().text_color(t.ansi1).whitespace_nowrap()
         .child(this.icon("git-merge", t.ansi1, 12)).child("Conflicts"), () => this.openReview("overview"), `Conflicts with ${pr.baseRefName}`)))
-      .when(Boolean(checksEl), (e) => e.child(checksEl))
       .when(open > 0, (e) => e.child(this.group("threads", t, h_flex().gap(4).items_center().text_color(t.accent)
         .child(this.icon("message-square", t.accent, 12)).child(String(open)), () => this.openReview("overview"), `${open} open review thread${open > 1 ? "s" : ""}`)))
-      .when(Boolean(review), (e) => e.child(this.group("review", t, div().text_color(t[review.color] ?? t.muted).whitespace_nowrap().child(review.label), () => this.openReview("overview"))))
-      .child(div().id("pr-open").size(22).flex_none().flex().items_center().justify_center().rounded(5).cursor_pointer().hover((s) => s.bg(t.hover)).tooltip("Open on GitHub")
-        .child(this.icon("external-link", t.dim, 12)).on_click((_e, cx) => cx.open_url(pr.url)));
+      .when(Boolean(review), (e) => e.child(this.group("review", t, div().text_color(t[review.color] ?? t.muted).whitespace_nowrap().child(review.label), () => this.openReview("overview"))));
+  }
+
+  // First on the left: the repo's name and its open PRs; a click toggles the
+  // PRs panel. Without a GitHub remote (or the panel), only the name.
+  repoButton(t) {
+    const g = this.git, p = this.panel(), prs = p.has("ship-it-prs") && this.showPrs(), n = this.prCount(), on = prs && p.open("ship-it-prs");
+    return h_flex().id("repo").h(26).px(9).gap(6).flex_none().items_center().rounded(6)
+      .border_1().border_color(on ? t.accent : t.border).bg(on ? t.selected : t.background)
+      .when(prs, (e) => e.cursor_pointer().hover((s) => s.bg(t.hover)).tooltip(`Open pull requests in ${g.repo}`).on_click(() => this.togglePanel("ship-it-prs")))
+      .child(this.icon("git-pull-request", on ? t.accent : t.muted, 13))
+      .child(div().font_semibold().text_color(t.foreground).whitespace_nowrap().child(g.repo))
+      .when(prs, (e) => e.child(div().text_color(t.muted).whitespace_nowrap().child(n ? `${n} PR${n > 1 ? "s" : ""}` : "PRs")));
+  }
+
+  // CI on the right, between the changes and PRs buttons: the PR's checks
+  // as passed, failed and running counts. Opens the review on Checks.
+  checksButton(t) {
+    if (this.pr?.kind !== "ok" || !this.checks?.length) return null;
+    const c = tally(this.checks), on = this.panel().open("ship-it-review") && shared("ship-it.target")?.tab === "checks";
+    if (!(c.pass + c.fail + c.cancel + c.pending)) return null; // only skipped: nothing to count
+    const count = (icon, n, col) => n > 0 ? h_flex().gap(3).items_center().text_color(col).child(this.icon(icon, col, 12)).child(String(n)) : null;
+    return h_flex().id("checks").h(26).px(9).gap(8).flex_none().items_center().rounded(6).cursor_pointer()
+      .border_1().border_color(on ? t.accent : t.border).bg(on ? t.selected : t.background).hover((s) => s.bg(t.hover))
+      .tooltip(`CI: ${c.pass} passed · ${c.fail} failed · ${c.pending} running · ${c.skipping} skipped`).on_click(() => this.openReview("checks"))
+      .children([count("circle-check", c.pass, t.ansi2), count("circle-x", c.fail + c.cancel, t.ansi1), count("circle-dot", c.pending, t.ansi3)].filter(Boolean));
+  }
+
+  // The main action on the right: the PR (icon, number, state, the title's
+  // first 30 characters) opens its review; with none, Create opens GitHub's form.
+  prButton(t, narrow) {
+    const p = this.pr;
+    if (p?.kind === "none") return this.button("pr-create", t, { icon: "git-pull-request", label: "Create PR", tip: "Open a pull request for this branch on GitHub",
+      onClick: () => { const g = this.git; exec("gh", ["pr", "create", "--web"], { cwd: g.root, on: g.on }); } });
+    if (p?.kind !== "ok") return null;
+    const pr = p.pr, look = prLook(pr), color = t[look.color] ?? t.muted;
+    const title = pr.title.length > 30 ? `${pr.title.slice(0, 30).trimEnd()}…` : pr.title;
+    const target = shared("ship-it.target"), on = this.panel().open("ship-it-review") && target?.root === this.git?.root && target?.tab !== "checks";
+    return h_flex().id("pr").h(26).px(9).gap(6).flex_none().items_center().rounded(6).cursor_pointer()
+      .border_1().border_color(on ? t.accent : t.border).bg(on ? t.selected : t.background).hover((s) => s.bg(t.hover))
+      .tooltip(`#${pr.number} ${pr.title} · open the review`).on_click(() => this.openReview("overview"))
+      .child(this.icon(look.icon, color, 13))
+      .child(div().flex_none().text_color(t.muted).child(`#${pr.number}`))
+      .child(div().h(18).px(7).flex_none().flex().items_center().rounded(9).bg(color + "22").text_size(10.5).font_semibold().text_color(color).child(look.label))
+      .when(!narrow, (e) => e.child(div().flex_none().text_color(t.foreground).whitespace_nowrap().child(title)));
   }
 
   // The PR list needs a GitHub remote.
@@ -393,26 +415,27 @@ export default class ShipIt extends View {
     const loc = location(this.loc);
     if (JSON.stringify([loc.cwd, loc.on]) !== this.locKey) this.refreshGit(cx);
     const t = theme(), g = this.git, narrow = this.width < 900, p = this.panel();
-    const s = this.stat;
+    // Each is null when there is nothing to show (prButton while the PR loads).
+    const s = this.stat, signals = this.showPr() ? this.prSignals(t) : null, prButton = this.showPr() ? this.prButton(t, narrow) : null, checks = this.checksButton(t);
     return h_flex().id("ship-it").size_full().px(10).items_center().bg(t.chrome).border_b(1).border_color(t.border)
       .text_size(12).text_color(t.foreground).overflow_hidden()
       .on_size_change((size, cx) => { if (Math.abs(size.width - this.width) > 1) { this.width = size.width; cx.notify(); } })
-      .child(this.machine(t))
-      .child(this.sep(t))
-      .child(this.loc?.cwd ? this.folder(t, narrow) : div().text_color(t.dim).child(this.first ? "…" : "No folder"))
-      .when(Boolean(g), (e) => e.child(this.sep(t)).child(this.branch(t)))
-      .when(this.showPr(), (e) => e.child(this.sep(t)).child(this.pullRequest(t, narrow)))
-      .child(div().flex_1().min_w(8))
-      .when(Boolean(g), (e) => e.child(h_flex().gap(6).flex_none().items_center()
-        .when(p.has("ship-it-changes"), (e) => e.child(this.button("pr-changes", t, {
-          icon: "file-diff", label: "PR changes", on: p.open("ship-it-changes"), onClick: () => this.togglePanel("ship-it-changes"),
+      // Left: the repo and its PRs, the folder when it says more than the name
+      // (a worktree, a subfolder), and what the PR waits on, in what the
+      // buttons leave: the folder's path shortens from its start, so nothing
+      // runs under them. The machine and branch are in Herdr's status bar.
+      .child(h_flex().flex_1().min_w(0).overflow_hidden().items_center()
+        .when(Boolean(g), (e) => e.child(this.repoButton(t)))
+        .when(!g || g.worktree || Boolean(g.sub), (e) => e.child(this.loc?.cwd ? this.folder(t, narrow) : div().text_color(t.dim).child(this.first ? "…" : "No folder")))
+        .when(Boolean(signals), (e) => e.child(this.sep(t)).child(signals.flex_none())))
+      .when(Boolean(g), (e) => e.child(h_flex().ml(8).gap(6).flex_none().items_center()
+        .when(Boolean(prButton), (e) => e.child(prButton))
+        .when(Boolean(this.changesHost()), (e) => e.child(this.button("pr-changes", t, {
+          icon: "file-diff", label: null, on: p.open(this.changesHost()) && shared("ship-it.changes")?.mode !== "dirty", onClick: () => this.toggleChanges(),
           extra: s?.files ? [div().text_color(t.muted).child(`${s.files}`), div().text_color(t.ansi2).child(`+${s.add}`), div().text_color(t.ansi1).child(`−${s.del}`)] : [],
           tip: s ? `${s.files} files changed since ${s.base}` : "What this branch changes",
         })))
-        .when(p.has("ship-it-prs") && this.showPrs(), (e) => e.child(this.button("prs", t, {
-          icon: "git-pull-request", label: "PRs", on: p.open("ship-it-prs"), onClick: () => this.togglePanel("ship-it-prs"),
-          extra: this.prCount() ? [div().text_color(t.muted).child(String(this.prCount()))] : [], tip: "Open pull requests in this repo",
-        })))
+        .when(Boolean(checks), (e) => e.child(checks))
         .when(this.showPr(), (e) => e.child(this.shipButton(t)))));
   }
 }

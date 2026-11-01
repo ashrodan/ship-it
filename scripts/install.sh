@@ -45,6 +45,9 @@ echo "synced data.js and icons/ into mods/ship-it-review, data.js and files.js i
 
 [[ "${1:-}" == "--sync" ]] && exit 0
 
+"$repo/scripts/test.sh" </dev/null >/dev/null || { echo "tests failed: run scripts/test.sh to see which" >&2; exit 1; }
+echo "tests passed"
+
 if [[ ! -d "$dest" ]]; then
   echo "no Herdr mods folder at $dest (set HERDR_APP_HOME)" >&2
   exit 1
