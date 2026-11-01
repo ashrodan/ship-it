@@ -110,7 +110,9 @@ export default class PullRequests extends View {
   // Hidden, it only notes that it is out of date; showing it catches up.
   shown() { return panelShown("ship-it-prs"); }
 
-  refresh(cx, force) {
+  // From render (rendering), the spinner shows in this same render: a notify
+  // there is refused ("not allowed during the render phase").
+  refresh(cx, force, rendering) {
     if (!this.shown()) { this.stale = true; return; }
     // A load that never came back (its task dropped) blocks for 30 s at most.
     if (this.loading && !force && Date.now() - this.loading < 30000) return;
@@ -118,7 +120,8 @@ export default class PullRequests extends View {
     if (context !== this.context) { this.context = context; this.limit = PAGE; this.recall(); }
     if (!cwd) return;
     const filter = this.filter, limit = this.limit, memo = this.memoKey();
-    const started = this.loading = Date.now(); this.stale = false; cx.notify();
+    const started = this.loading = Date.now(); this.stale = false;
+    if (!rendering) cx.notify();
     cx.spawn(async (cx) => {
       try {
         const top = await exec("git", [...READ, "rev-parse", "--show-toplevel"], { cwd, on });
@@ -224,7 +227,7 @@ export default class PullRequests extends View {
   }
 
   render(cx) {
-    if (this.shown() && (this.stale || this.key() !== this.context)) this.refresh(cx);
+    if (this.shown() && (this.stale || this.key() !== this.context)) this.refresh(cx, false, true);
     const t = theme(), list = this.prs;
     const empty = this.error || (this.loading ? "Loading pull requests…" : this.filter === "all" ? "No open pull requests" : this.filter === "mine" ? "No open pull requests of yours" : "Nothing waiting for your review");
     return v_flex().id("ship-it-prs").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13)
