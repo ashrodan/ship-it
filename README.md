@@ -14,6 +14,8 @@ strip, PR changes, the review, the PR list and Ship.
   folder, and what the pull request waits on: conflicts, checks, open review
   threads and the review decision. (The machine and branch are in Herdr's
   status bar.) It follows the pane you're in, across spaces and machines.
+- **CI**, on the right between the changes and PRs buttons: the PR's checks
+  as passed, failed and running counts. It opens the review on Checks.
 - **The PR button**, first on the right, is the main action: the PR's
   number, state and the first 30 characters of its title. It opens the
   review. On a branch with no PR it is **Create PR**.

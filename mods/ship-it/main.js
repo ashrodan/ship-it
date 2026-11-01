@@ -328,27 +328,36 @@ export default class ShipIt extends View {
 
 
 
-  // What the PR waits on, beside the branch: checks, conflicts, open threads,
-  // the review. Each opens the review. null when there is nothing to say.
+  // What the PR waits on, beside the folder: conflicts, open threads, the
+  // review (its checks are a button on the right). Each opens the review. null when there is nothing to say.
   prSignals(t) {
     const p = this.pr;
     if (!p) return this.group("pr", t, div().text_color(t.dim).child("…"));
     if (p.kind === "unavailable") return this.group("pr", t, h_flex().gap(6).items_center().child(this.icon("git-pull-request", t.dim)).child(div().text_color(t.dim).child("gh unavailable")), null, p.reason);
     if (p.kind === "none") return null;
-    const pr = p.pr, review = reviewLook(pr.reviewDecision), c = tally(this.checks);
-    const count = (icon, n, col) => n > 0 ? h_flex().gap(3).items_center().text_color(col).child(this.icon(icon, col, 12)).child(String(n)) : null;
+    const pr = p.pr, review = reviewLook(pr.reviewDecision);
     const open = (this.threads ?? []).filter((th) => !th.resolved).length;
     const conflicted = pr.mergeable === "CONFLICTING" || pr.mergeStateStatus === "DIRTY";
-    if (!this.checks?.length && !conflicted && !open && !review) return null;
+    if (!conflicted && !open && !review) return null;
     return h_flex().gap(2).min_w(0).items_center()
       .when(conflicted, (e) => e.child(this.group("conflicts", t, h_flex().gap(4).items_center().text_color(t.ansi1).whitespace_nowrap()
         .child(this.icon("git-merge", t.ansi1, 12)).child("Conflicts"), () => this.openReview("overview"), `Conflicts with ${pr.baseRefName}`)))
-      .when(Boolean(this.checks?.length), (e) => e.child(this.group("checks", t, h_flex().gap(8).items_center()
-        .children([count("circle-check", c.pass, t.ansi2), count("circle-x", c.fail + c.cancel, t.ansi1), count("circle-dot", c.pending, t.ansi3)].filter(Boolean)),
-        () => this.openReview("checks"), `${c.pass} passed · ${c.fail} failed · ${c.pending} pending · ${c.skipping} skipped`)))
       .when(open > 0, (e) => e.child(this.group("threads", t, h_flex().gap(4).items_center().text_color(t.accent)
         .child(this.icon("message-square", t.accent, 12)).child(String(open)), () => this.openReview("overview"), `${open} open review thread${open > 1 ? "s" : ""}`)))
       .when(Boolean(review), (e) => e.child(this.group("review", t, div().text_color(t[review.color] ?? t.muted).whitespace_nowrap().child(review.label), () => this.openReview("overview"))));
+  }
+
+  // CI on the right, between the changes and PRs buttons: the PR's checks
+  // as passed, failed and running counts. Opens the review on Checks.
+  checksButton(t) {
+    if (this.pr?.kind !== "ok" || !this.checks?.length) return null;
+    const c = tally(this.checks), on = this.panel().open("ship-it-review") && shared("ship-it.target")?.tab === "checks";
+    if (!(c.pass + c.fail + c.cancel + c.pending)) return null; // only skipped: nothing to count
+    const count = (icon, n, col) => n > 0 ? h_flex().gap(3).items_center().text_color(col).child(this.icon(icon, col, 12)).child(String(n)) : null;
+    return h_flex().id("checks").h(26).px(9).gap(8).flex_none().items_center().rounded(6).cursor_pointer()
+      .border_1().border_color(on ? t.accent : t.border).bg(on ? t.selected : t.background).hover((s) => s.bg(t.hover))
+      .tooltip(`CI: ${c.pass} passed · ${c.fail} failed · ${c.pending} running · ${c.skipping} skipped`).on_click(() => this.openReview("checks"))
+      .children([count("circle-check", c.pass, t.ansi2), count("circle-x", c.fail + c.cancel, t.ansi1), count("circle-dot", c.pending, t.ansi3)].filter(Boolean));
   }
 
   // The main action on the right: the PR (icon, number, state, the title's
@@ -360,7 +369,7 @@ export default class ShipIt extends View {
     if (p?.kind !== "ok") return null;
     const pr = p.pr, look = prLook(pr), color = t[look.color] ?? t.muted;
     const title = pr.title.length > 30 ? `${pr.title.slice(0, 30).trimEnd()}…` : pr.title;
-    const on = this.panel().open("ship-it-review") && shared("ship-it.target")?.root === this.git?.root;
+    const target = shared("ship-it.target"), on = this.panel().open("ship-it-review") && target?.root === this.git?.root && target?.tab !== "checks";
     return h_flex().id("pr").h(26).px(9).gap(6).flex_none().items_center().rounded(6).cursor_pointer()
       .border_1().border_color(on ? t.accent : t.border).bg(on ? t.selected : t.background).hover((s) => s.bg(t.hover))
       .tooltip(`#${pr.number} ${pr.title} · open the review`).on_click(() => this.openReview("overview"))
@@ -395,7 +404,7 @@ export default class ShipIt extends View {
     if (JSON.stringify([loc.cwd, loc.on]) !== this.locKey) this.refreshGit(cx);
     const t = theme(), g = this.git, narrow = this.width < 900, p = this.panel();
     // Each is null when there is nothing to show (prButton while the PR loads).
-    const s = this.stat, signals = this.showPr() ? this.prSignals(t) : null, prButton = this.showPr() ? this.prButton(t, narrow) : null;
+    const s = this.stat, signals = this.showPr() ? this.prSignals(t) : null, prButton = this.showPr() ? this.prButton(t, narrow) : null, checks = this.checksButton(t);
     return h_flex().id("ship-it").size_full().px(10).items_center().bg(t.chrome).border_b(1).border_color(t.border)
       .text_size(12).text_color(t.foreground).overflow_hidden()
       .on_size_change((size, cx) => { if (Math.abs(size.width - this.width) > 1) { this.width = size.width; cx.notify(); } })
@@ -412,6 +421,7 @@ export default class ShipIt extends View {
           extra: s?.files ? [div().text_color(t.muted).child(`${s.files}`), div().text_color(t.ansi2).child(`+${s.add}`), div().text_color(t.ansi1).child(`−${s.del}`)] : [],
           tip: s ? `${s.files} files changed since ${s.base}` : "What this branch changes",
         })))
+        .when(Boolean(checks), (e) => e.child(checks))
         .when(p.has("ship-it-prs") && this.showPrs(), (e) => e.child(this.button("prs", t, {
           icon: "git-pull-request", label: "PRs", on: p.open("ship-it-prs"), onClick: () => this.togglePanel("ship-it-prs"),
           extra: this.prCount() ? [div().text_color(t.muted).child(String(this.prCount()))] : [], tip: "Open pull requests in this repo",

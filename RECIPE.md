@@ -41,8 +41,6 @@ Herdr's status bar shows both. Left to right:
    to say. Otherwise:
    - **Conflicts** in red with a `git-merge` icon, when GitHub says the PR
      conflicts with its base.
-   - Checks: `circle-check` n (green), `circle-x` n (red, failed and
-     cancelled), `circle-dot` n (amber, pending). Only non-zero counts show.
    - Open review threads: `message-square` n in `accent`.
    - The review decision: "Approved" (green), "Changes requested" (red),
      "Review required" (`muted`).
@@ -62,6 +60,10 @@ Herdr's status bar shows both. Left to right:
      `+add` (green) and `−del` (red); the counts hide when nothing differs.
      While Changes is open on Since main: `accent` border, `selected` fill.
      (Herdr's own Changes, for uncommitted work, stays in the tab bar.)
+   - **CI**: `circle-check` n (green), `circle-x` n (red, failed and
+     cancelled), `circle-dot` n (amber, pending); only non-zero counts show,
+     and the button hides when there are none (no checks, or only skipped).
+     Opens the review on **Checks**; `accent` border while it is open there.
    - **PRs** (`git-pull-request`) with the open count, when the repo has a
      GitHub remote. Toggles the Pull requests panel.
    - **Ship** (`rocket`), solid (`solid` / `solid_foreground`) when the PR
