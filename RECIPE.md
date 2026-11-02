@@ -365,7 +365,7 @@ a close button.
 - **Commands** (bind in `keys.json` or run with `herdr-app do`, shown
   copies only): `ship-it-review.overview`, `.files`, `.checks`, `.commits`, `.refresh`,
   `.next`, `.prev`, `.next-unviewed`, `.open-file`, `.threads`, `.log`,
-  `.file:<path>`. Ship it needs no `keys.json`: every key above works with
+  `.file:<path>`, `.commit:<sha>` (a prefix will do; it waits for the list). Ship it needs no `keys.json`: every key above works with
   the pane focused.
 - **Writes to GitHub**, each only on a click: Comment (`gh pr comment`),
   Reply and Resolve/Reopen (GraphQL `addPullRequestReviewThreadReply`,

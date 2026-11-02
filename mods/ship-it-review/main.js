@@ -93,7 +93,7 @@ export default class Review extends View {
     this.gen = (this.gen ?? 0) + 1;
     this.loading = false; this.filesBusy = false; this.diffBusy = false; this.checksBusy = false; this.filesStale = false;
     // Commits: { commits, upstream, ahead, behind, limited } once loaded; `commit` is the one open below the list.
-    this.commitList = null; this.commitsBusy = false; this.commitsStale = false; this.commit = null; this.commitIndex = -1;
+    this.commitList = null; this.commitsBusy = false; this.commitsStale = false; this.commit = null; this.commitIndex = -1; this.wantCommit = null;
     this.recall();
   }
 
@@ -226,9 +226,21 @@ export default class Review extends View {
         // The open commit left the branch (a rebase, a reset): close it.
         if (this.commit && !list.commits.some((c) => c.sha === this.commit.sha)) this.commit = null;
         this.commitIndex = Math.min(this.commitIndex, list.commits.length - 1);
+        this.openWanted(cx);
       } catch (e) { if (gen === this.gen) this.commitList = { error: String(e?.message ?? e), commits: [] }; }
       finally { this.commitsBusy = false; cx.notify(); }
     });
+  }
+
+  // `ship-it-review.commit:<sha>` (a prefix will do): open it now, or once the list loads.
+  openWanted(cx) {
+    const sha = this.wantCommit, list = this.commitList?.commits;
+    if (!sha || !list) return;
+    this.wantCommit = null;
+    const i = list.findIndex((c) => c.sha.startsWith(sha));
+    if (i < 0) return;
+    this.commitIndex = i;
+    if (this.commit?.sha !== list[i].sha) this.showCommit(list[i], cx);
   }
 
   // Opens a commit below the list; the same one again closes it.
@@ -468,6 +480,7 @@ export default class Review extends View {
     if (c === "overview" || c === "files" || c === "checks" || c === "commits") this.tab = c;
     else if (c === "refresh") this.refresh(cx, true);
     else if (c.startsWith("file:")) { this.tab = "files"; this.openFile(c.slice(5), cx); }
+    else if (c.startsWith("commit:")) { this.tab = "commits"; this.wantCommit = c.slice(7).toLowerCase(); this.openWanted(cx); }
     else if (c === "next" || c === "prev") { this.tab = "files"; this.step(c === "next" ? 1 : -1, cx); }
     else if (c === "next-unviewed") { this.tab = "files"; this.nextUnviewed(cx); }
     else if (c === "open-file") this.openLocal(this.files.find((f) => f.path === this.open));
