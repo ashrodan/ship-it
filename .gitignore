@@ -2,3 +2,4 @@
 .env*
 mods/*/gpui-kit.d.ts
 mods/*/jsconfig.json
+.worktrees/
