@@ -4,7 +4,7 @@
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 
-export const state = { spaces: [], panes: [], layout: null, shared: {}, runs: [] };
+export const state = { spaces: [], panes: [], layout: null, shared: {}, runs: [], window: null };
 
 export function exec(program, args = [], { cwd } = {}) {
   return new Promise((resolve, reject) => {
@@ -20,6 +20,7 @@ export const home = () => process.env.HOME;
 export const spaces = () => state.spaces;
 export const panes = () => state.panes;
 export const focused = () => null;
+export const window = () => state.window;
 export const layout = () => state.layout;
 export const shared = (key) => state.shared[key];
 export const setShared = (key, value) => { state.shared[key] = value; };

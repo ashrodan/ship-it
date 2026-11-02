@@ -85,8 +85,9 @@ Without `--layout`, the script only installs the mods; add the blocks by hand
 
 ### Requirements
 
-- The Herdr desktop app (`herdr-app`), macOS or Linux, and `python3` for
-  `--layout`.
+- The Herdr desktop app (`herdr-app`), macOS, Linux or Windows (with Git
+  for Windows, whose `grep` counts untracked files' lines), and `python3`
+  for `--layout`.
 - `git`, and the [GitHub CLI](https://cli.github.com) logged in
   (`gh auth login`) for anything about pull requests. Without `gh` the strip
   still shows the folder, branch and changes.

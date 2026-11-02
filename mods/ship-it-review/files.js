@@ -1,13 +1,15 @@
 // What the branch changes: the working tree against the merge base of HEAD and
 // its base, so the review shows what the PR will hold after the next push.
 
-import { exec, readTextFile } from "herdr";
+import { exec, readTextFile, window } from "herdr";
 import { READ } from "./data.js";
 
 export const MAX_FILES = 1000;
 export const MAX_LINES = 1500;
 
 const git = (args, root, on) => exec("git", [...READ, ...args], { cwd: root, on });
+// Windows has no grep on PATH: Git for Windows' own, on this machine.
+const grep = (on) => (!on && window()?.platform === "windows" ? "C:/Program Files/Git/usr/bin/grep.exe" : "grep");
 const split0 = (text) => (text || "").split("\0");
 
 // [{ path, status, add, del, binary, fresh, dirty, key }] plus the merge base.
@@ -64,7 +66,7 @@ export async function branchFiles(root, on, base) {
   // text comes into the script (-I leaves binary files out; -H names every file).
   const fresh = shown.filter((f) => f.fresh).slice(0, 200);
   if (fresh.length) {
-    const r = await exec("grep", ["-IcH", "", "--", ...fresh.map((f) => f.path)], { cwd: root, on }).catch(() => null);
+    const r = await exec(grep(on), ["-IcH", "", "--", ...fresh.map((f) => f.path)], { cwd: root, on }).catch(() => null);
     const counts = {};
     for (const line of (r?.stdout ?? "").split("\n")) {
       const i = line.lastIndexOf(":");

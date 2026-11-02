@@ -4,8 +4,8 @@
 //
 // data.js is a copy: edit mods/ship-it/data.js and run scripts/install.sh.
 
-import { exec, run, spaces, panes } from "herdr";
-import { READ, tilde } from "./data.js";
+import { exec, run, spaces, panes, home as homeDir } from "herdr";
+import { READ, tilde, slashes } from "./data.js";
 
 // One word for a PR's checks: "fail", "pending", "pass" or null (none).
 export function checkState(rollup) {
@@ -53,7 +53,8 @@ export async function addWorktree(root, on, pr) {
   const branch = localBranch(pr);
   const common = await git(["rev-parse", "--path-format=absolute", "--git-common-dir"], "git rev-parse");
   const main = common.endsWith("/.git") ? common.slice(0, -5) : common;
-  const home = (await exec("sh", ["-c", 'printf %s "$HOME"'], { on })).stdout.trim();
+  // This machine: Herdr knows its home (Windows has no sh). Another: ask its shell.
+  const home = on ? (await exec("sh", ["-c", 'printf %s "$HOME"'], { on })).stdout.trim() : slashes(homeDir());
   if (!home) throw new Error("Couldn't find the home folder");
   const path = `${home}/.herdr/worktrees/${main.split("/").pop()}/${slug(branch)}`;
   const local = (await exec("git", [...READ, "show-ref", "--verify", "--quiet", `refs/heads/${branch}`], { cwd: root, on })).code === 0;
@@ -79,10 +80,16 @@ export function places(on) {
 
 // The space showing a checkout, if one does. A space in a deeper checkout
 // (.worktrees/x inside the repo's own) is that checkout's, not this one's.
+// Folders compare as git's: slashes, no trailing one, and a Windows drive's in any case.
+const norm = (p) => {
+  p = slashes(p)?.replace(/(.)\/+$/, "$1");
+  return /^[A-Za-z]:\//.test(p ?? "") ? p.toLowerCase() : p;
+};
 export function spaceAt(path, where, paths = []) {
   if (!path) return undefined;
   const inside = (p, dir) => p === dir || p?.startsWith(dir + "/");
-  return where.find(({ at }) => inside(at, path) && !paths.some((c) => c.length > path.length && inside(at, c)))?.s;
+  const dir = norm(path), deeper = paths.map(norm).filter((c) => c.length > dir.length);
+  return where.find(({ at }) => { const a = norm(at); return inside(a, dir) && !deeper.some((c) => inside(a, c)); })?.s;
 }
 
 // Show the space on that checkout, or make one (unnamed: it is called after

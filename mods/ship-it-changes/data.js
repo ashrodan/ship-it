@@ -10,9 +10,12 @@ import { exec, spaces, panes, focused, home, layout, shared } from "herdr";
 // a folder watch would see it, and every refresh would start the next one.
 export const READ = ["--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "diff.autoRefreshIndex=false"];
 
+// Windows: Herdr's folders use backslashes, git's slashes; compare them as git's.
+export const slashes = (p) => (p ? p.replace(/\\/g, "/") : p);
+
 export const tilde = (path) => {
-  const h = home();
-  return !path ? "" : path === h ? "~" : path.startsWith(h + "/") ? "~" + path.slice(h.length) : path;
+  const h = slashes(home()), p = slashes(path);
+  return !path ? "" : p === h ? "~" : p.startsWith(h + "/") ? "~" + p.slice(h.length) : path;
 };
 
 // The focused pane's live folder and the machine it is on. A mod pane has no
@@ -88,7 +91,8 @@ export async function gitFacts(cwd, on) {
   if (top.code !== 0 && !top.stdout) return null;
   const [root, gitDir, commonDir, sha] = top.stdout.trim().split("\n");
   if (!root) return null;
-  const abs = (p) => (p?.startsWith("/") ? p : `${root}/${p}`);
+  const abs = (p) => (/^([A-Za-z]:)?\//.test(p ?? "") ? p : `${root}/${p}`); // D:/… on Windows
+  cwd = slashes(cwd);
   const [branch, counts, status] = await Promise.all([
     git(["branch", "--show-current"], root, on),
     git(["rev-list", "--left-right", "--count", "@{upstream}...HEAD"], root, on),

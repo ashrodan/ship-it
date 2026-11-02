@@ -91,6 +91,14 @@ test("spaces: the deepest checkout wins", () => {
   assert.equal(spaceAt("/r/.worktrees", [{ s: "nested", at: "/r/.worktrees/x" }], paths), undefined);
 });
 
+test("spaces: a Windows folder matches with either slash, in any case", () => {
+  const where = [{ s: "main", at: "D:\\dev\\Repo\\sub" }, { s: "tree", at: "c:\\users\\me\\.herdr\\worktrees\\repo\\x\\" }];
+  const paths = ["D:/dev/repo", "C:/Users/me/.herdr/worktrees/repo/x"];
+  assert.equal(spaceAt("D:/dev/repo", where, paths), "main");
+  assert.equal(spaceAt("C:/Users/me/.herdr/worktrees/repo/x", where, paths), "tree");
+  assert.equal(spaceAt("/r", [{ s: "other", at: "/R" }], ["/r"]), undefined); // elsewhere case still counts
+});
+
 test("the worktree button: go to the space, open the checkout, or create it", () => {
   scratch();
   const path = join(process.env.HOME, ".herdr/worktrees/r/y");
