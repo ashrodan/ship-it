@@ -1,7 +1,8 @@
 // Ship it · Review: the branch's pull request in a pane beside the terminals.
 // Overview (description, conversation, a comment box), Files (every change
-// since the base, with viewed marks and inline review threads) and Checks
-// (failing first, the failed log's tail, re-run). Opened by the ship-it strip,
+// since the base, with viewed marks and inline review threads), Checks
+// (failing first, the failed log's tail, re-run) and Commits (the branch's
+// commits, what is not pushed or not pulled, a commit's message and files). Opened by the ship-it strip,
 // which says what to show through shared("ship-it.target").
 
 import { View, div, svg } from "gpui-kit";
@@ -9,9 +10,10 @@ import { v_flex, h_flex, Scrollbar, v_virtual_list, VirtualListScrollHandle, Tex
 import { theme, settings, props, shared, setShared, run, panes, focused, exec, notify, watchFolder, nextCommand } from "herdr";
 import { gitFacts, prFacts, PR_DETAIL, checks, tally, baseRef, threads, conflicts, gql, ago, duration, prLook, reviewLook, tilde, modShown, panelShown, Recent, sharedPr } from "./data.js";
 import { branchFiles, fileDiff, diffRows, logTail, MAX_FILES } from "./files.js";
+import { branchCommits, commitDetail, commitFileDiff, commitUrl, plainMarkdown, MAX_COMMITS } from "./commits.js";
 
 const ICON = (name) => `mods/ship-it-review/icons/${name}.svg`;
-const TABS = [["overview", "Overview"], ["files", "Files"], ["checks", "Checks"]];
+const TABS = [["overview", "Overview"], ["files", "Files"], ["checks", "Checks"], ["commits", "Commits"]];
 const STATUS = { A: "ansi2", M: "ansi3", D: "ansi1", R: "accent", U: "ansi1" };
 const BUCKETS = [
   ["fail", "Failing", "circle-x", "ansi1"],
@@ -40,6 +42,7 @@ export default class Review extends View {
     this.diffScroll = VirtualListScrollHandle.new();
     this.fileScroll = VirtualListScrollHandle.new();
     this.logScroll = VirtualListScrollHandle.new();
+    this.commitDiffScroll = VirtualListScrollHandle.new();
     this.seen = shared("ship-it.target")?.at ?? 0;
     this.tab = p?.tab ?? "overview";
     this.width = 800;
@@ -62,7 +65,7 @@ export default class Review extends View {
     cx.timer.every(20000, (cx) => {
       if (this.shown() && this.pr?.kind === "ok" && tally(this.checks).pending > 0) this.refreshChecks(cx);
     });
-    cx.timer.every(10000, (cx) => { if (this.on) this.refreshFiles(cx); });
+    cx.timer.every(10000, (cx) => { if (this.on) { this.refreshFiles(cx); this.refreshCommits(cx); } });
     // Bindable from keys.json ("ship-it-review.checks") or `herdr-app do`.
     cx.spawn(async (cx) => { for (;;) { this.command(await nextCommand(), cx); cx.notify(); } });
   }
@@ -90,6 +93,8 @@ export default class Review extends View {
     // Loads for the last repo finish on their own and are dropped by gen.
     this.gen = (this.gen ?? 0) + 1;
     this.loading = false; this.filesBusy = false; this.diffBusy = false; this.checksBusy = false; this.filesStale = false;
+    // Commits: { commits, upstream, ahead, behind, limited } once loaded; `commit` is the one open below the list.
+    this.commitList = null; this.commitsBusy = false; this.commitsStale = false; this.commit = null; this.commitIndex = -1; this.wantCommit = null; this.commitFile = null;
     this.recall();
   }
 
@@ -176,6 +181,8 @@ export default class Review extends View {
         if (gen !== this.gen) return;
         if (!on) this.watch(root, cx);
         if (files) await files;
+        // A refresh may follow a commit, a push or a fetch: Commits reloads when it shows.
+        this.commitsStale = true;
         if (this.tab !== "files") this.filesStale = true;
         else if (!files || base !== early) await this.loadFiles(cx, gen);
       } catch (e) { if (gen === this.gen) this.error = String(e?.message ?? e); }
@@ -205,6 +212,74 @@ export default class Review extends View {
     cx.spawn(async (cx) => { await this.loadFiles(cx, gen); cx.notify(); });
   }
 
+  // Commits load when the Commits tab shows; otherwise a change only marks them stale.
+  refreshCommits(cx) {
+    if (!this.shown() || this.tab !== "commits") { this.commitsStale = true; return; }
+    if (!this.base || this.loading || this.commitsBusy) return;
+    this.commitsStale = false;
+    const root = this.root, on = this.on, base = this.base, gen = this.gen;
+    this.commitsBusy = true;
+    cx.spawn(async (cx) => {
+      try {
+        const list = await branchCommits(root, on, base);
+        if (gen !== this.gen) return;
+        this.commitList = list;
+        // The open commit left the branch (a rebase, a reset): close it.
+        if (this.commit && !list.commits.some((c) => c.sha === this.commit.sha)) this.commit = null;
+        this.commitIndex = Math.min(this.commitIndex, list.commits.length - 1);
+        this.openWanted(cx);
+      } catch (e) { if (gen === this.gen) this.commitList = { error: String(e?.message ?? e), commits: [] }; }
+      finally { this.commitsBusy = false; cx.notify(); }
+    });
+  }
+
+  // `ship-it-review.commit:<sha>` (a prefix will do): open it now, or once the list loads.
+  openWanted(cx) {
+    const sha = this.wantCommit, list = this.commitList?.commits;
+    if (!sha || !list) return;
+    this.wantCommit = null;
+    const i = list.findIndex((c) => c.sha.startsWith(sha));
+    if (i < 0) return;
+    this.commitIndex = i;
+    if (this.commit?.sha !== list[i].sha) this.showCommit(list[i], cx);
+  }
+
+  // A file of the open commit: its diff in that commit, below the file list.
+  // The same file again closes it.
+  showCommitFile(f, cx) {
+    const sha = this.commit?.sha;
+    if (!sha) return;
+    if (this.commitFile?.path === f.path) { this.commitFile = null; return; }
+    const root = this.root, on = this.on, gen = this.gen;
+    this.commitFile = { sha, path: f.path, add: f.add, del: f.del, binary: f.binary, loading: true, rows: [], cut: false, width: 320 };
+    this.commitDiffScroll.scroll_to_item(0);
+    cx.spawn(async (cx) => {
+      let next;
+      try {
+        const { lines, cut } = await commitFileDiff(root, on, sha, f.path);
+        const rows = diffRows(lines);
+        next = { rows, cut, width: Math.max(320, ...rows.map((r) => r.text.length * 6.7 + 100)) };
+      } catch (e) { next = { error: String(e?.message ?? e), rows: [] }; }
+      if (gen === this.gen && this.commitFile?.sha === sha && this.commitFile.path === f.path) Object.assign(this.commitFile, next, { loading: false });
+      cx.notify();
+    });
+  }
+
+  // Opens a commit below the list; the same one again closes it.
+  showCommit(c, cx) {
+    this.commitFile = null;
+    if (this.commit?.sha === c.sha) { this.commit = null; return; }
+    const root = this.root, on = this.on, gen = this.gen;
+    this.commit = { sha: c.sha, subject: c.subject, loading: true };
+    cx.spawn(async (cx) => {
+      let detail;
+      try { detail = await commitDetail(root, on, c.sha); }
+      catch (e) { detail = { sha: c.sha, subject: c.subject, error: String(e?.message ?? e) }; }
+      if (gen === this.gen && this.commit?.sha === c.sha) this.commit = detail;
+      cx.notify();
+    });
+  }
+
   watch(root, cx) {
     if (this.watched === root) return;
     this.watched = root;
@@ -214,7 +289,7 @@ export default class Review extends View {
           await watchFolder(root);
           // A burst of writes (a build, an agent's edits) becomes one refresh.
           await cx.sleep(1500);
-          if (this.watched === root) this.refreshFiles(cx);
+          if (this.watched === root) { this.refreshFiles(cx); this.refreshCommits(cx); }
         }
       } catch { this.watched = null; }
     });
@@ -425,9 +500,13 @@ export default class Review extends View {
 
   command(name, cx) {
     const c = String(name).replace(/^ship-it-review[.:]/, "");
-    if (c === "overview" || c === "files" || c === "checks") this.tab = c;
+    if (c === "overview" || c === "files" || c === "checks" || c === "commits") this.tab = c;
     else if (c === "refresh") this.refresh(cx, true);
     else if (c.startsWith("file:")) { this.tab = "files"; this.openFile(c.slice(5), cx); }
+    else if (c.startsWith("commit-file:")) {
+      const f = this.commit?.files?.find((x) => x.path === c.slice(12));
+      if (f && this.commitFile?.path !== f.path) { this.tab = "commits"; this.showCommitFile(f, cx); }
+    } else if (c.startsWith("commit:")) { this.tab = "commits"; this.wantCommit = c.slice(7).toLowerCase(); this.openWanted(cx); }
     else if (c === "next" || c === "prev") { this.tab = "files"; this.step(c === "next" ? 1 : -1, cx); }
     else if (c === "next-unviewed") { this.tab = "files"; this.nextUnviewed(cx); }
     else if (c === "open-file") this.openLocal(this.files.find((f) => f.path === this.open));
@@ -447,10 +526,11 @@ export default class Review extends View {
     }
     const k = e.key, mods = e.modifiers ?? {};
     if (mods.control || mods.platform || mods.alt) return;
-    if (k === "1" || k === "2" || k === "3") { this.tab = TABS[+k - 1][0]; cx.notify(); }
+    if (k >= "1" && k <= String(TABS.length) && k.length === 1) { this.tab = TABS[+k - 1][0]; cx.notify(); }
     else if (k === "r") this.refresh(cx, true);
     else if (k === "o") this.openUrl(this.pr?.pr?.url, cx);
-    else if (k === "escape" && (this.drawer || this.log)) { this.drawer = null; this.log = null; cx.notify(); }
+    else if (k === "escape" && this.tab === "commits" && this.commitFile) { this.commitFile = null; cx.notify(); }
+    else if (k === "escape" && (this.drawer || this.log || (this.tab === "commits" && this.commit))) { this.drawer = null; this.log = null; if (this.tab === "commits") this.commit = null; cx.notify(); }
     else if (this.tab === "files") {
       if (k === "j" || k === "down") this.step(1, cx);
       else if (k === "k" || k === "up") this.step(-1, cx);
@@ -467,6 +547,18 @@ export default class Review extends View {
         const c = list[this.checkIndex];
         if (bucketOf(c) === "fail") this.showLog(c, cx); else this.openUrl(c.link, cx);
       } else return;
+      cx.notify();
+    } else if (this.tab === "commits") {
+      const list = this.commitList?.commits ?? [];
+      if (!list.length) return;
+      if (k === "j" || k === "down") this.commitIndex = Math.min(list.length - 1, this.commitIndex + 1);
+      else if (k === "k" || k === "up") this.commitIndex = Math.max(0, this.commitIndex - 1);
+      else if (k === "enter" && list[this.commitIndex]) this.showCommit(list[this.commitIndex], cx);
+      else return;
+      // Moving with the details open follows the selection.
+      if ((k === "j" || k === "k" || k === "down" || k === "up") && this.commit && list[this.commitIndex]?.sha !== this.commit.sha) {
+        this.commit = null; this.showCommit(list[this.commitIndex], cx);
+      }
       cx.notify();
     } else return;
     cx.stop_propagation();
@@ -526,6 +618,8 @@ export default class Review extends View {
       files: files ? badge(this.limited ? `${MAX_FILES}+` : String(files), t.muted) : null,
       checks: c.fail + c.cancel ? badge(String(c.fail + c.cancel), t.ansi1) : c.pending ? badge(String(c.pending), t.ansi3) : c.pass ? h_flex().child(this.icon("check", t.ansi2, 12)) : null,
       overview: pr && (pr.comments?.length || 0) + (pr.reviews?.length || 0) ? badge(String((pr.comments?.length || 0) + (pr.reviews?.length || 0)), t.muted) : null,
+      // Amber while some are not pushed.
+      commits: this.commitList?.commits?.length ? badge(this.commitList.limited ? `${MAX_COMMITS}+` : String(this.commitList.commits.length), this.commitList.ahead ? t.ansi3 : t.muted) : null,
     };
     return h_flex().h(42).flex_none().pl(6).pr(8).gap(2).items_center().border_b(1).border_color(t.border).bg(t.chrome)
       .children(TABS.map(([id, label]) => {
@@ -548,9 +642,10 @@ export default class Review extends View {
 
   footer(t) {
     const hints = {
-      overview: ["1 2 3 tabs", "r refresh", "o open on GitHub", "⌘↵ comment"],
+      overview: ["1–4 tabs", "r refresh", "o open on GitHub", "⌘↵ comment"],
       files: ["j/k files", "v viewed", "n next unviewed", "e open file", "r refresh"],
       checks: ["j/k checks", "↵ log", "r refresh", "o open on GitHub"],
+      commits: ["j/k commits", "↵ details", "click a file: its diff", "esc close"],
     }[this.tab];
     return h_flex().h(28).flex_none().px(12).gap(14).items_center().border_t(1).border_color(t.border).bg(t.chrome)
       .text_size(11).text_color(t.dim).children(hints.map((h) => div().whitespace_nowrap().child(h)));
@@ -833,11 +928,12 @@ export default class Review extends View {
       .when(this.cut, (e) => e.child(div().absolute().bottom(6).right(14).px(8).py(2).rounded(4).bg(t.raised).text_size(10.5).text_color(t.muted).child("Showing the first 1,500 lines")));
   }
 
-  diffRow(row, i, t) {
+  // `plain`: a commit's diff, which has no review threads.
+  diffRow(row, i, t, plain = false) {
     if (row.kind === "@") {
       return h_flex().w_full().h(20).px(12).items_center().bg(t.accent + "12").text_color(t.muted).child(div().truncate().child(row.text));
     }
-    const list = this.rowThreads.get(i), active = list && this.drawer?.ids.includes(list[0].id);
+    const list = plain ? null : this.rowThreads.get(i), active = list && this.drawer?.ids.includes(list[0].id);
     const open = list?.some((th) => !th.resolved);
     const num = (n) => div().w(38).flex_none().pr(8).text_right().text_color(t.dim).child(n === undefined ? "" : String(n));
     return h_flex().w_full().h(20).items_center()
@@ -956,6 +1052,111 @@ export default class Review extends View {
         .child(Scrollbar.vertical("log").viewport_from_layout().absolute().inset_0()));
   }
 
+  // ---- Commits
+
+  commitsTab(t) {
+    if (!this.base) return this.empty(t, this.loading ? "loader" : "git-commit", this.loading ? "Loading commits…" : "No base branch to compare with", null);
+    const d = this.commitList;
+    if (!d) return this.empty(t, "loader", "Loading commits…", null);
+    if (d.error) return this.empty(t, "git-commit", "Cannot read the commits", d.error);
+    const base = this.base.replace(/^origin\//, "");
+    if (!d.commits.length) return this.empty(t, "git-commit", "No commits yet", `Nothing on this branch since ${base}.`);
+    const local = d.commits.filter((c) => c.local).length;
+    const summary = h_flex().h(40).flex_none().px(14).gap(12).items_center().border_b(1).border_color(t.border).text_size(12)
+      .child(div().font_medium().text_color(t.foreground).child(`${d.limited ? `${MAX_COMMITS}+` : local} commit${local === 1 ? "" : "s"} since ${base}`))
+      .when(d.ahead > 0, (e) => e.child(div().text_color(t.ansi3).child(d.upstream ? `${d.ahead} not pushed` : "not on GitHub yet")))
+      .when(d.behind > 0, (e) => e.child(div().text_color(t.accent).child(`${d.behind} not pulled`)))
+      .when(d.ahead === 0 && d.behind === 0, (e) => e.child(div().text_color(t.muted).child(`in step with ${d.upstream}`)))
+      .child(div().flex_1())
+      .when(this.commitsBusy, (e) => e.child(this.icon("loader", t.dim, 13).spin(900)));
+    const rows = v_flex().w_full().py(6).children(d.commits.map((c, i) => this.commitRow(c, i, t)));
+    const listEl = div().id("commits-list").w_full()
+      .when(Boolean(this.commit), (e) => e.h(Math.min(240, d.commits.length * 34 + 16)).flex_none().border_b(1).border_color(t.border))
+      .when(!this.commit, (e) => e.flex_1().min_h(0)).overflow_y_scrollbar().child(rows);
+    return v_flex().flex_1().min_h(0).child(summary).child(listEl).when(Boolean(this.commit), (e) => e.child(this.commitView(t)));
+  }
+
+  commitRow(c, i, t) {
+    const sel = this.commitIndex === i || this.commit?.sha === c.sha;
+    const url = commitUrl(this.pr?.pr?.url, c.sha);
+    const tag = !c.remote ? ["not pushed", t.ansi3] : !c.local ? ["not pulled", t.accent] : null;
+    return h_flex().id(`commit-${i}`).h(34).mx(6).px(10).gap(10).items_center().rounded(6).cursor_pointer()
+      .when(Boolean(sel), (e) => e.bg(t.selected)).when(!sel, (e) => e.hover((s) => s.bg(t.hover)))
+      .on_click((_e, cx) => { this.commitIndex = i; this.showCommit(c, cx); cx.notify(); })
+      .tooltip(this.commit?.sha === c.sha ? "Hide the details" : "Show the message and files")
+      .child(div().w(64).flex_none().font_family(settings().font_family ?? "JetBrains Mono").text_size(11.5).text_color(t.accent).child(c.sha.slice(0, 8)))
+      .child(h_flex().flex_1().min_w(0).gap(8).items_center().text_size(12.5)
+        .child(div().min_w(0).truncate().text_color(c.local ? t.foreground : t.muted).child(c.subject || "(no subject)"))
+        .when(Boolean(tag), (e) => e.child(this.pill(tag[0], tag[1], t))))
+      .when(this.width > 560, (e) => e.child(div().max_w(140).flex_none().truncate().text_size(11.5).text_color(t.muted).child(c.author)))
+      .child(div().w(36).flex_none().text_right().text_size(11.5).text_color(t.dim).child(ago(c.date)))
+      .child(div().id(`commit-link-${i}`).size(22).flex_none().flex().items_center().justify_center().rounded(5)
+        .when(Boolean(url) && c.remote, (e) => e.hover((s) => s.bg(t.raised)).tooltip("Open on GitHub")
+          .on_click((_e, cx) => { cx.stop_propagation(); this.openUrl(url, cx); })
+          .child(this.icon("external-link", t.dim, 12))));
+  }
+
+  commitView(t) {
+    const c = this.commit, mono = settings().font_family ?? "JetBrains Mono";
+    const head = h_flex().h(34).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border).bg(t.raised).text_size(12)
+      .child(this.icon("git-commit", t.muted, 13))
+      .child(div().font_family(mono).text_size(11.5).text_color(t.accent).child(c.sha.slice(0, 12)))
+      .when(Boolean(c.author), (e) => e.child(div().min_w(0).truncate().text_color(t.muted).child(`${c.author} · ${new Date(c.date).toLocaleString()}`)))
+      .when(Boolean(c.loading), (e) => e.child(div().text_color(t.dim).child("reading the commit…")))
+      .child(div().flex_1())
+      .child(this.iconButton("commit-close", t, "x", "Close (esc)", (_e, cx) => { this.commit = null; cx.notify(); }));
+    if (c.loading || c.error) {
+      return v_flex().flex_1().min_h(0).child(head)
+        .when(Boolean(c.error), (e) => e.child(div().p(14).text_size(12).text_color(t.muted).child(c.error)));
+    }
+    const [subject, ...rest] = c.message.split("\n");
+    const body = rest.join("\n").trim();
+    const add = c.files.reduce((n, f) => n + f.add, 0), del = c.files.reduce((n, f) => n + f.del, 0);
+    const files = v_flex().w_full().mt(12).border_t(1).border_color(t.border)
+      .child(h_flex().h(28).gap(8).items_center().text_size(11).font_semibold().text_color(t.muted)
+        .child(`${c.files.length} FILE${c.files.length === 1 ? "" : "S"}`)
+        .child(div().text_color(t.ansi2).child(`+${add}`)).child(div().text_color(t.ansi1).child(`−${del}`)))
+      .children(c.files.map((f, i) => h_flex().id(`commit-file-${i}`).h(24).mx(-6).px(6).gap(10).items_center().rounded(5).cursor_pointer().font_family(mono).text_size(11.5)
+        .when(this.commitFile?.path === f.path, (e) => e.bg(t.selected)).when(this.commitFile?.path !== f.path, (e) => e.hover((s) => s.bg(t.hover)))
+        .tooltip(this.commitFile?.path === f.path ? "Hide the changes (esc)" : "Show the changes in this commit")
+        .on_click((_e, cx) => { this.showCommitFile(f, cx); cx.notify(); })
+        .child(div().flex_1().min_w(0).truncate().text_color(t.foreground).child(f.path))
+        .child(div().w(48).flex_none().text_right().text_color(f.binary ? t.dim : t.ansi2).child(f.binary ? "bin" : `+${f.add}`))
+        .child(div().w(48).flex_none().text_right().text_color(t.ansi1).child(f.binary ? "" : `−${f.del}`))));
+    // With a file open, the message and files take the top and its diff the rest.
+    return v_flex().flex_1().min_h(0).child(head)
+      .child(div().id("commit-detail").overflow_y_scrollbar()
+        .when(Boolean(this.commitFile), (e) => e.h(Math.min(220, 120 + c.files.length * 24)).flex_none().border_b(1).border_color(t.border))
+        .when(!this.commitFile, (e) => e.flex_1().min_h(0))
+        .child(v_flex().w_full().p(14).gap(8)
+          .child(div().text_size(13.5).font_semibold().text_color(t.foreground).child(subject))
+          .when(Boolean(body), (e) => e.child(TextView.markdown(`commit-body-${c.sha}`, plainMarkdown(body)).selectable(true).scrollable(false)
+            .w_full().text_size(12.5).text_color(t.foreground)))
+          .child(files)))
+      .when(Boolean(this.commitFile), (e) => e.child(this.commitDiff(t)));
+  }
+
+  // The open commit file's diff: a 30px header (path, +/−, close) over the
+  // same rows as the Files tab, without review threads.
+  commitDiff(t) {
+    const f = this.commitFile, mono = settings().font_family ?? "JetBrains Mono";
+    const head = h_flex().h(30).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border).bg(t.chrome).text_size(11.5)
+      .child(this.icon("file-diff", t.muted, 12))
+      .child(div().flex_1().min_w(0).truncate().font_family(mono).text_color(t.foreground).child(f.path))
+      .when(!f.binary, (e) => e.child(div().flex_none().text_color(t.ansi2).child(`+${f.add}`)).child(div().flex_none().text_color(t.ansi1).child(`−${f.del}`)))
+      .child(this.iconButton("commit-file-close", t, "x", "Close (esc)", (_e, cx) => { this.commitFile = null; cx.notify(); }));
+    const note = f.loading ? "Reading the change…" : f.error ? `Cannot show this diff: ${f.error}` : null;
+    return v_flex().flex_1().min_h(0).child(head)
+      .child(div().flex_1().min_h(0).relative().bg(t.background).font_family(mono).text_size(11.5)
+        .child(div().id("commit-diff-x").size_full().overflow_x_scrollbar()
+          .child(div().w_full().min_w(f.width ?? 320).h_full()
+            .child(v_virtual_list("commit-diff", f.rows.length, 20, (i) => String(i),
+              (range) => f.rows.slice(range.start, range.end).map((row, k) => this.diffRow(row, range.start + k, t, true))).track_scroll(this.commitDiffScroll).size_full())))
+        .child(Scrollbar.vertical("commit-diff").viewport_from_layout().absolute().inset_0())
+        .when(Boolean(note), (e) => e.child(div().absolute().top(10).left(14).font_family(settings().ui_font_family ?? "Geist").text_size(12).text_color(f.error ? t.ansi1 : t.dim).child(note)))
+        .when(Boolean(f.cut), (e) => e.child(div().absolute().bottom(6).right(14).px(8).py(2).rounded(4).bg(t.raised).text_size(10.5).text_color(t.muted).child("Showing the first 1,500 lines"))));
+  }
+
   // ---- root
 
   render(cx) {
@@ -978,10 +1179,11 @@ export default class Review extends View {
     if (this.stale && this.shown()) this.refresh(cx);
     else if (this.filesStale && this.tab === "files" && !this.loading) this.refreshFiles(cx);
     else if (this.tab === "files" && !this.loading && !this.filesBusy && !this.diffBusy) this.healDiff(cx);
+    else if (this.tab === "commits" && (this.commitsStale || !this.commitList) && !this.loading && !this.commitsBusy && this.base) this.refreshCommits(cx);
     const t = theme();
     const content = !this.root
       ? this.empty(t, "rocket", "Nothing to review", "Click the pull request on the Ship it strip.")
-      : this.tab === "files" ? this.filesTab(t) : this.tab === "checks" ? this.checksTab(t) : this.overview(t);
+      : this.tab === "files" ? this.filesTab(t) : this.tab === "checks" ? this.checksTab(t) : this.tab === "commits" ? this.commitsTab(t) : this.overview(t);
     return v_flex().id("ship-it-review").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(13)
       .track_focus(this.handle).on_key_down((e, cx) => this.key(e, cx))
       .on_mouse_down("left", () => this.handle.focus())

@@ -8,10 +8,12 @@ and `+/−` of what the branch changes since its base, in the side panel; double
 file to open it whole in a pane), **PRs** (the repo's open pull requests)
 and **Ship** (merges the PR, after a confirm). The PR's state, checks and
 threads open the review in the side panel (a pane to the right when the
-layout has no review panel), with three tabs: **Overview** (the
+layout has no review panel), with four tabs: **Overview** (the
 description, the conversation and a comment box), **Files** (every change
-since the base, "viewed" marks, inline review threads) and **Checks**
-(failing first, the failed log's tail, re-run).
+since the base, "viewed" marks, inline review threads), **Checks**
+(failing first, the failed log's tail, re-run) and **Commits** (the
+branch's commits, what is not pushed or not pulled, a commit's message and
+files).
 
 ![Ship it](preview.png)
 
@@ -154,12 +156,13 @@ it follows the strip's repo (`ship-it.base`) and switches to a newer
 `ship-it.target` without offering; as a pane it keeps its repo. Text 13px in the UI font, background
 `background`.
 
-- **Header**, 42px, `chrome`, `border` line below. Three text tabs,
-  12.5px medium: **Overview**, **Files**, **Checks**. The selected tab is
+- **Header**, 42px, `chrome`, `border` line below. Four text tabs,
+  12.5px medium: **Overview**, **Files**, **Checks**, **Commits**. The selected tab is
   `foreground` with a 2px `accent` bar at its bottom edge, the others
   `muted`. Each carries an 18px count badge on `raised`: Overview the
   number of comments and reviews, Files the file count, Checks the failing
-  count in red, else the pending count in amber, else a green check. On the
+  count in red, else the pending count in amber, else a green check,
+  Commits the commit count (amber while some are not pushed). On the
   right: `git-branch`, `branch → base` in 11.5px `muted` (hidden under
   520px), then 26px icon buttons: refresh (spins while loading) and Open on
   GitHub.
@@ -245,6 +248,32 @@ button. Without `gh`: "GitHub is not reachable" and the reason.
   `error`, `FAIL` or `panic:` are red on a red tint; `##[group]` lines
   `muted`.
 
+**Commits.**
+
+- A 40px summary: "3 commits since main" (`foreground`, medium), then
+  "1 not pushed" (amber; "not on GitHub yet" when the branch has no
+  upstream), "2 not pulled" (`accent`), or "in step with origin/feat/x"
+  (`muted`); a spinning `loader` on the right while it reloads.
+- 34px rows, newest first: the short SHA (8 characters, terminal font,
+  11.5px, `accent`), the subject (12.5px; `muted` for a commit that is only
+  on GitHub), a pill **not pushed** (amber) or **not pulled** (`accent`),
+  the author in `muted` (over 560px wide), the age in `dim`, and an
+  `external-link` button for commits on GitHub.
+- Clicking a commit (or `enter`) opens it **below the list**, which shrinks
+  to 240px: a 34px header on `raised` (`git-commit`, the 12-character SHA,
+  author and date, close), the subject (13.5px semibold), the body as
+  written (selectable; markdown punctuation escaped, every newline kept),
+  and a **FILES** list with `+add` green and `−del` red per file (`bin` for
+  binary). The same commit again closes it.
+- Clicking a file (rows `hover`, the open one `selected`) shows its diff in
+  that commit: the message and files shrink to the top (at most 220px), and
+  below them a 30px header on `chrome` (`file-diff`, the path in the
+  terminal font, `+add` `−del`, close) over the same 20px diff rows as Files
+  (hunk headers on `accent` at 7%, added and removed lines tinted, both line
+  numbers), without review threads. Capped at 1,500 lines with the same
+  note; a binary file says "Binary file changed". The same file again, or
+  `esc`, closes it; `esc` again closes the commit.
+
 When the strip points at a different repo than the pane shows, a 36px bar
 on `accent` at 10% says "The strip is on ~/dev/other" with **Switch** and
 a close button.
@@ -324,17 +353,28 @@ a close button.
   (1.5 s settle). Checks reload every 20 s while any is pending. The file
   list and diffs load only while the Files tab shows (the tab badge uses
   GitHub's file count until then), and start in parallel with the GitHub
-  calls when the strip already knows the base.
-- **Keys** (pane focused, not typing): `1` `2` `3` tabs, `r` refresh, `o`
+  calls when the strip already knows the base. Commits load only while the
+  Commits tab shows; a refresh or a file change marks them stale.
+- **Commits.** `base..HEAD` joined with `base..<upstream>`, newest first, up
+  to 250. The upstream is `@{u}` unless that is the base (a branch made
+  with `checkout -b x origin/main` tracks main), else `origin/<branch>`;
+  with neither, every commit is "not pushed". Git only: no `gh` call, so it
+  works offline and on another machine. A commit's detail is one `git show`
+  for the message and one `git show --numstat` for the files, on the
+  click; a commit that is not in the clone says to fetch.
+- **Keys** (pane focused, not typing): `1` to `4` tabs, `r` refresh, `o`
   open on GitHub, `esc` closes the drawer or log. Files: `j`/`down`,
   `k`/`up`, `v`, `n` next unviewed (wraps), `e` open the file in the file
   pane. Checks: `j`/`k` move, `enter`
-  opens the log of a failed check or the link of another. In a text box
+  opens the log of a failed check or the link of another. Commits: `j`/`k`
+  move (with a commit open, the open one follows), `enter` opens or closes
+  it, `esc` closes it. In a text box
   `⌘↵` / `ctrl-↵` posts and `esc` leaves the box.
 - **Commands** (bind in `keys.json` or run with `herdr-app do`, shown
-  copies only): `ship-it-review.overview`, `.files`, `.checks`, `.refresh`,
+  copies only): `ship-it-review.overview`, `.files`, `.checks`, `.commits`, `.refresh`,
   `.next`, `.prev`, `.next-unviewed`, `.open-file`, `.threads`, `.log`,
-  `.file:<path>`. Ship it needs no `keys.json`: every key above works with
+  `.file:<path>`, `.commit:<sha>` (a prefix will do; it waits for the list),
+  `.commit-file:<path>` (a file of the open commit). Ship it needs no `keys.json`: every key above works with
   the pane focused.
 - **Writes to GitHub**, each only on a click: Comment (`gh pr comment`),
   Reply and Resolve/Reopen (GraphQL `addPullRequestReviewThreadReply`,
@@ -443,6 +483,10 @@ a close button.
     `gh run view --job <id> --log-failed`, `gh run rerun <id> --failed`,
     `gh pr merge <n> --squash|--merge|--rebase --match-head-commit <sha>`,
     `gh pr create --web`.
+- **Commits** come from `git log --format=%H%x1f%an%x1f%aI%x1f%s%x1e`
+  (unit and record separators, so a subject can hold anything) and
+  `git show --numstat -z`; a file's change in a commit from `git show
+  --format= <sha> -- <path>` (`commits.js`).
 - **Checks** come from `gh pr checks --json`, grouped by its `bucket`
   (`fail` and `cancel` count as failing). Run and job ids are parsed from
   each check's Actions link; checks from other apps only open their link.
@@ -536,6 +580,10 @@ a close button.
   the file and its thread.
 - Checks lists failing, pending, passed and skipped in that order; a
   failed Actions check shows its log tail.
+- Commits lists the branch's commits newest first; a commit made and not
+  pushed shows **not pushed** and the tab badge turns amber; after a push
+  it reads "in step with origin/<branch>"; a click shows the full message
+  and its files.
 - With `gh` logged out, the strip still shows the folder.
 - With the panel closed and the review pane in another tab, no `git` or
   `gh` process starts for them until they show.
