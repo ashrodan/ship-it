@@ -4,6 +4,7 @@
 
 import { exec } from "herdr";
 import { READ } from "./data.js";
+import { MAX_LINES } from "./files.js";
 
 export const MAX_COMMITS = 250;
 
@@ -83,6 +84,18 @@ export async function commitDetail(root, on, sha) {
   if (meta.code !== 0) throw new Error(/unknown revision|bad object|ambiguous/i.test(meta.stderr) ? "Not in this clone yet (fetch to see it)" : meta.stderr.trim() || "git show failed");
   const [full, author, email, date, ...body] = meta.stdout.split(US);
   return { sha: full, author, email, date, message: body.join(US).trim(), files: parseNumstat(stat.stdout) };
+}
+
+// One file's diff in one commit (against its first parent), capped like the
+// Files tab: { lines, cut }. Lines start at the first hunk.
+export async function commitFileDiff(root, on, sha, path) {
+  if (!SHA.test(sha || "")) throw new Error("Not a commit id");
+  const r = await git(["show", "--format=", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames", sha, "--", path], root, on);
+  if (r.code !== 0) throw new Error(r.stderr.trim() || "git show failed");
+  const all = r.stdout.replace(/\n$/, "").split("\n"), first = all.findIndex((l) => l.startsWith("@@"));
+  const lines = first >= 0 ? all.slice(first) : [/^Binary files /m.test(r.stdout) ? "Binary file changed" : "No text changes"];
+  const cut = lines.length > MAX_LINES;
+  return { lines: lines.slice(0, MAX_LINES).map((l) => (l.length > 4000 ? l.slice(0, 4000) + "…" : l)), cut };
 }
 
 // Plain text as markdown that shows it as written: punctuation escaped (a

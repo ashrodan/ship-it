@@ -265,6 +265,14 @@ button. Without `gh`: "GitHub is not reachable" and the reason.
   written (selectable; markdown punctuation escaped, every newline kept),
   and a **FILES** list with `+add` green and `−del` red per file (`bin` for
   binary). The same commit again closes it.
+- Clicking a file (rows `hover`, the open one `selected`) shows its diff in
+  that commit: the message and files shrink to the top (at most 220px), and
+  below them a 30px header on `chrome` (`file-diff`, the path in the
+  terminal font, `+add` `−del`, close) over the same 20px diff rows as Files
+  (hunk headers on `accent` at 7%, added and removed lines tinted, both line
+  numbers), without review threads. Capped at 1,500 lines with the same
+  note; a binary file says "Binary file changed". The same file again, or
+  `esc`, closes it; `esc` again closes the commit.
 
 When the strip points at a different repo than the pane shows, a 36px bar
 on `accent` at 10% says "The strip is on ~/dev/other" with **Switch** and
@@ -365,7 +373,8 @@ a close button.
 - **Commands** (bind in `keys.json` or run with `herdr-app do`, shown
   copies only): `ship-it-review.overview`, `.files`, `.checks`, `.commits`, `.refresh`,
   `.next`, `.prev`, `.next-unviewed`, `.open-file`, `.threads`, `.log`,
-  `.file:<path>`, `.commit:<sha>` (a prefix will do; it waits for the list). Ship it needs no `keys.json`: every key above works with
+  `.file:<path>`, `.commit:<sha>` (a prefix will do; it waits for the list),
+  `.commit-file:<path>` (a file of the open commit). Ship it needs no `keys.json`: every key above works with
   the pane focused.
 - **Writes to GitHub**, each only on a click: Comment (`gh pr comment`),
   Reply and Resolve/Reopen (GraphQL `addPullRequestReviewThreadReply`,
@@ -476,7 +485,8 @@ a close button.
     `gh pr create --web`.
 - **Commits** come from `git log --format=%H%x1f%an%x1f%aI%x1f%s%x1e`
   (unit and record separators, so a subject can hold anything) and
-  `git show --numstat -z` (`commits.js`).
+  `git show --numstat -z`; a file's change in a commit from `git show
+  --format= <sha> -- <path>` (`commits.js`).
 - **Checks** come from `gh pr checks --json`, grouped by its `bucket`
   (`fail` and `cancel` count as failing). Run and job ids are parsed from
   each check's Actions link; checks from other apps only open their link.

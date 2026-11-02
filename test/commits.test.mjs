@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { git, scratch, repoWithPrs } from "./git.mjs";
-import { branchCommits, commitDetail, commitUrl, parseLog, parseNumstat, plainMarkdown } from "../mods/ship-it-review/commits.js";
+import { branchCommits, commitDetail, commitFileDiff, commitUrl, parseLog, parseNumstat, plainMarkdown } from "../mods/ship-it-review/commits.js";
 
 // Commits a minute apart, so "newest first" does not depend on timing.
 let minute = 0;
@@ -80,6 +80,19 @@ test("a commit's detail: full message, author, and files with binary marked", as
   assert.equal((await commitDetail(repo, null, theirs)).message, "add c elsewhere");
   await assert.rejects(commitDetail(repo, null, "HEAD; rm -rf"), /Not a commit id/);
   await assert.rejects(commitDetail(repo, null, "0123456789abcdef0123456789abcdef01234567"), /Not in this clone yet/);
+});
+
+test("one file's diff in one commit, binary files named", async () => {
+  const { repo, pushed, mine } = branch();
+  const later = commit(repo, "a.txt", "one\nTWO\nthree\n", "change a");
+  const a = await commitFileDiff(repo, null, later, "a.txt");
+  assert.deepEqual(a.lines, ["@@ -1,2 +1,3 @@", " one", "-two", "+TWO", "+three"]);
+  assert.equal(a.cut, false);
+  // The first commit of a file: all added.
+  assert.deepEqual((await commitFileDiff(repo, null, pushed, "a.txt")).lines, ["@@ -0,0 +1,2 @@", "+one", "+two"]);
+  assert.deepEqual((await commitFileDiff(repo, null, mine, "b.bin")).lines, ["Binary file changed"]);
+  assert.deepEqual((await commitFileDiff(repo, null, later, "b.bin")).lines, ["No text changes"]);
+  await assert.rejects(commitFileDiff(repo, null, "nope;", "a.txt"), /Not a commit id/);
 });
 
 test("parsers and the GitHub link", () => {
