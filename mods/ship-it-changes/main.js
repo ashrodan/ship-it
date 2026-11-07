@@ -10,7 +10,7 @@
 // mods/ship-it-review/files.js, then run scripts/install.sh.
 
 import { View, div, svg } from "gpui-kit";
-import { v_flex, h_flex, Scrollbar, v_virtual_list, InputState, Input } from "gpui-base";
+import { v_flex, h_flex, Scrollbar, v_virtual_list, InputState, Input, v_resizable, resizable_panel } from "gpui-base";
 import { exec, shared, setShared, run, panes, focused, watchFolder, theme, settings, layout } from "herdr";
 import { location, baseRef, panelShown, Recent } from "./data.js";
 import { branchFiles, fileDiff, diffRows, MAX_FILES } from "./files.js";
@@ -202,7 +202,10 @@ export default class PrChanges extends View {
           .child(tab("branch", `Since ${since}`, `What the branch changes since ${shared("ship-it.base")?.ref ?? this.base ?? "its base"}, uncommitted work included`)))
         .child(div().px(5).py(1).rounded(4).border_1().border_color(t.border).text_size(10).text_color(t.muted).whitespace_nowrap().child(`${this.files.length} files`))
         .child(div().flex_1()).child(div().text_size(11).text_color(t.ansi2).child(`+${add}`)).child(div().text_size(11).text_color(t.ansi1).child(`−${del}`)))
-      .child(v_flex().id("pr-changes-list").flex_none().h(Math.min(200, Math.max(44, this.files.length * 28 + 12))).overflow_y_scrollbar().p(6).border_b(1).border_color(t.border).children(this.files.map((f) => {
+      // Files above, the picked file's diff below, half and half until the
+      // divider is dragged (the window keeps the sizes, keyed by the group id).
+      .child(v_resizable("pr-changes-split").flex_1().min_h(0)
+      .child(resizable_panel().size_range(44).child(v_flex().id("pr-changes-list").size_full().overflow_y_scrollbar().p(6).children(this.files.map((f) => {
         const parts = f.path.split("/"), name = parts.pop();
         return h_flex().id(`pr-change-${f.path}`).h(28).flex_none().px(8).gap(8).items_center().rounded(7).cursor_pointer().when(this.open === f.path, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover)).on_click((e, cx) => {
             if (e.click_count < 2) this.pick(f.path, cx);
@@ -214,14 +217,14 @@ export default class PrChanges extends View {
           .when(this.open === f.path && f.status !== "D", (e) => e.child(div().id("open-file").size(20).flex_none().flex().items_center().justify_center().rounded(5).hover((s) => s.bg(t.hover)).tooltip("Open the whole file in a pane (double-click)")
             .child(svg(ICON("external-link")).size(12).text_color(t.muted)).on_click((_e, cx) => { cx.stop_propagation(); this.openFile(f.path); })))
           .when(f.add > 0, (e) => e.child(div().text_size(11).text_color(t.ansi2).child(`+${f.add}`))).when(f.del > 0, (e) => e.child(div().text_size(11).text_color(t.ansi1).child(`−${f.del}`)));
-      })).when(!this.files.length, (e) => e.child(div().p(8).text_color(t.dim).child(empty))))
-      .when(this.limited, (el) => el.child(div().px(12).py(4).text_size(11).text_color(t.dim).child(`Showing the first ${MAX_FILES.toLocaleString()} changed files`)))
-      .child(div().flex_1().min_h(0).relative().font_family(settings().font_family ?? "JetBrains Mono").text_size(11)
+      })).when(!this.files.length, (e) => e.child(div().p(8).text_color(t.dim).child(empty)))
+        .when(this.limited, (el) => el.child(div().px(6).py(4).text_size(11).text_color(t.dim).child(`Showing the first ${MAX_FILES.toLocaleString()} changed files`)))))
+      .child(resizable_panel().size_range(60).child(div().size_full().min_h(0).relative().font_family(settings().font_family ?? "JetBrains Mono").text_size(11)
         .child(div().id("pr-changes-diff-x").size_full().overflow_x_scrollbar()
           .child(div().w_full().min_w(this.diffWidth).h_full().child(v_virtual_list("pr-changes-diff", this.rows.length, 20, (i) => String(i),
             (range) => this.rows.slice(range.start, range.end).map((row) => this.diffRow(row, t))).size_full())))
         .child(Scrollbar.vertical("pr-changes-diff").viewport_from_layout().absolute().inset_0())
-        .when(!this.open && this.files.length > 0, (e) => e.child(div().absolute().top(6).px(12).text_color(t.dim).child("Select a file to view its changes"))))
+        .when(!this.open && this.files.length > 0, (e) => e.child(div().absolute().top(6).px(12).text_color(t.dim).child("Select a file to view its changes"))))))
       .when(Boolean(this.note), (e) => e.child(div().px(10).pb(8).text_size(11).text_color(t.ansi1).child(this.note)))
       .when(dirty, (e) => e.child(h_flex().flex_none().p(10).gap(8).border_t(1).border_color(t.border)
         .child(div().id("commit-message").flex_1().min_w(0).h(32).px(10).flex().items_center().rounded(8).border_1().border_color(this.typing ? t.accent : t.border).cursor_text().on_mouse_down("left", (_e, cx) => cx.stop_propagation()).child(Input.new(this.input).h_full().text_size(12).text_color(t.foreground)))
