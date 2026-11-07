@@ -176,6 +176,16 @@ it follows the strip's repo (`ship-it.base`) and switches to a newer
 - "**author** wants to merge `head` into `base` · opened 3d ago". Branch
   names are chips: 20px, `raised`, the terminal font at 11px.
 - `16 files +860 −23`.
+- **Draft ↔ ready**, at the right end of the state pill's row, for an open
+  PR only: a draft shows **Ready for review** (`git-pull-request`, solid);
+  an open PR that is not a draft shows **Convert to draft**
+  (`git-pull-request-draft`, quiet). The button reads "Marking ready…" or
+  "Converting…" while `gh` runs; its hover text is the exact command.
+- **Assignees**, a row under the fact chips: "Assignees" in `muted`, then a
+  22px chip per login (radius 11, 1px `border`; "(you)" after the person
+  `gh` is logged in as) with an × that unassigns while the PR is open, or
+  "No one" in `dim`; then **Assign me** (`user-plus`, `accent`) while the
+  PR is open and not yet assigned to you.
 - Fact chips: a checks chip (opens Checks), the review decision, the merge
   state ("Ready to merge", "Merge blocked", "Behind base", "Has conflicts",
   "Checks failing", "Draft"), labels in their GitHub colours, and
@@ -376,7 +386,15 @@ a close button.
   `.file:<path>`, `.commit:<sha>` (a prefix will do; it waits for the list),
   `.commit-file:<path>` (a file of the open commit). Ship it needs no `keys.json`: every key above works with
   the pane focused.
+- **Draft and assignees.** One `gh` call on a click (`actions.js`): `gh pr
+  ready <n>` or `gh pr ready <n> --undo`; `gh pr edit <n> --add-assignee
+  @me` or `--remove-assignee <login>`. One write at a time (the others are
+  disabled while it runs); a toast says what happened, or "GitHub refused"
+  with gh's first line; then the PR reloads. Who "you" are comes from `gh
+  api user --jq .login`, asked once per machine (again after a failure).
+  `assignees` is in the PR fields the strip and the review share.
 - **Writes to GitHub**, each only on a click: Comment (`gh pr comment`),
+  Ready / Convert to draft (`gh pr ready`), Assign me / unassign (`gh pr edit`),
   Reply and Resolve/Reopen (GraphQL `addPullRequestReviewThreadReply`,
   `resolveReviewThread`, `unresolveReviewThread`), Re-run failed
   (`gh run rerun <run> --failed` per failed run). Failures show a toast.

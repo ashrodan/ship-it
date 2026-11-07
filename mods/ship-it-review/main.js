@@ -10,6 +10,7 @@ import { v_flex, h_flex, Scrollbar, v_virtual_list, VirtualListScrollHandle, Tex
 import { theme, settings, props, shared, setShared, run, panes, focused, exec, notify, watchFolder, nextCommand } from "herdr";
 import { gitFacts, prFacts, PR_DETAIL, checks, tally, baseRef, threads, conflicts, gql, ago, duration, prLook, reviewLook, tilde, modShown, panelShown, Recent, sharedPr } from "./data.js";
 import { branchFiles, fileDiff, diffRows, logTail, MAX_FILES } from "./files.js";
+import { draftAction, assignAction, runAction, viewer } from "./actions.js";
 import { branchCommits, commitDetail, commitFileDiff, commitUrl, plainMarkdown, MAX_COMMITS } from "./commits.js";
 
 const ICON = (name) => `mods/ship-it-review/icons/${name}.svg`;
@@ -146,6 +147,8 @@ export default class Review extends View {
         if (gen !== this.gen) return;
         if (!facts) { this.error = "Not a git repository"; return; }
         this.git = facts;
+        // Who gh is logged in as, for Assign me (asked once per machine).
+        const me = viewer(root, on);
         // The strip already found this repo's base: read the files while GitHub answers.
         const known = shared("ship-it.base");
         const early = known?.root === root && (known.on ?? null) === (on ?? null) ? known.ref : null;
@@ -180,6 +183,7 @@ export default class Review extends View {
         this.conflicts = ok && (pr.pr.mergeable === "CONFLICTING" || pr.pr.mergeStateStatus === "DIRTY") && base ? await conflicts(root, on, base).catch(() => null) : null;
         if (gen !== this.gen) return;
         if (!on) this.watch(root, cx);
+        this.me = await me;
         if (files) await files;
         // A refresh may follow a commit, a push or a fetch: Commits reloads when it shows.
         this.commitsStale = true;
@@ -396,6 +400,23 @@ export default class Review extends View {
   }
 
   openUrl(url, cx) { if (url) cx.open_url(url); }
+
+  // A quick write on the PR (draft ↔ ready, assignees): one gh call on a
+  // click, a toast either way, then a fresh look at the PR.
+  act(action, cx) {
+    if (!action || this.acting || !this.root) return;
+    const root = this.root, on = this.on;
+    this.acting = action.busy;
+    cx.spawn(async (cx) => {
+      try {
+        await runAction(root, on, action);
+        notify({ title: action.done, body: "", level: "success", timeout: 3 });
+        this.refresh(cx, true);
+      } catch (e) { notify({ title: "GitHub refused", body: String(e?.message ?? e), level: "error" }); }
+      finally { this.acting = null; cx.notify(); }
+    });
+    cx.notify();
+  }
 
   postComment(cx) {
     const body = this.comment.trim(), pr = this.pr?.pr, root = this.root, on = this.on, gen = this.gen;
@@ -664,6 +685,22 @@ export default class Review extends View {
     }
     const pr = p.pr, look = prLook(pr), color = t[look.color] ?? t.muted, review = reviewLook(pr.reviewDecision), c = tally(this.checks);
     const people = (pr.reviewRequests ?? []).map((r) => r.login ?? r.name ?? r.slug).filter(Boolean);
+    const draft = draftAction(pr), open = pr.state === "OPEN";
+    const assignees = (pr.assignees ?? []).map((a) => a.login).filter(Boolean);
+    const mine = Boolean(this.me) && assignees.includes(this.me);
+    // Assignees: a chip each (× unassigns while open), then Assign me.
+    const assigned = h_flex().flex_wrap().gap(6).items_center().text_size(11.5)
+      .child(div().text_color(t.muted).child("Assignees"))
+      .when(!assignees.length, (e) => e.child(div().text_color(t.dim).child("No one")))
+      .children(assignees.map((login) => h_flex().id(`assignee-${login}`).h(22).pl(8).pr(open ? 3 : 8).gap(4).items_center().rounded(11).border_1().border_color(t.border).text_color(t.foreground)
+        .child(login === this.me ? `${login} (you)` : login)
+        .when(open, (e) => e.child(div().id(`unassign-${login}`).size(16).flex().items_center().justify_center().rounded(8)
+          .when(!this.acting, (e) => e.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => { cx.stop_propagation(); this.act(assignAction(pr, login, false), cx); }))
+          .tooltip(`Unassign ${login}`).child(this.icon("x", t.dim, 10))))))
+      .when(open && !mine, (e) => e.child(h_flex().id("assign-me").h(22).px(8).gap(4).items_center().rounded(11).text_color(t.accent)
+        .when(!this.acting, (e) => e.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.act(assignAction(pr, "@me", true), cx)))
+        .tooltip(`gh pr edit ${pr.number} --add-assignee @me`)
+        .child(this.icon("user-plus", t.accent, 12)).child(this.acting === "Assigning…" ? "Assigning…" : "Assign me")));
     const merge = { CLEAN: ["Ready to merge", t.ansi2], BLOCKED: ["Merge blocked", t.ansi3], BEHIND: ["Behind base", t.ansi3], DIRTY: ["Has conflicts", t.ansi1], UNSTABLE: ["Checks failing", t.ansi1], DRAFT: ["Draft", t.muted], HAS_HOOKS: ["Ready to merge", t.ansi2] }[pr.mergeStateStatus];
 
     const facts = h_flex().flex_wrap().gap(6).items_center()
@@ -692,7 +729,11 @@ export default class Review extends View {
           .child(h_flex().id("pr-number").gap(4).items_center().px(4).rounded(4).cursor_pointer().text_size(12).text_color(t.dim)
             .hover((s) => s.text_color(t.accent)).tooltip("Copy link")
             .on_click((_e, cx) => { cx.write_to_clipboard(pr.url); notify({ title: `#${pr.number} link copied`, body: pr.url, level: "info", timeout: 2 }); })
-            .child(`#${pr.number}`).child(this.icon("copy", t.dim, 11))))
+            .child(`#${pr.number}`).child(this.icon("copy", t.dim, 11)))
+          .child(div().flex_1())
+          .when(Boolean(draft), (e) => e.child(this.button("draft-toggle", t, this.acting === draft.busy ? draft.busy : draft.label, (_e, cx) => this.act(draft, cx),
+            { icon: pr.isDraft ? "git-pull-request" : "git-pull-request-draft", primary: pr.isDraft, disabled: Boolean(this.acting),
+              tip: pr.isDraft ? `gh pr ready ${pr.number}` : `gh pr ready ${pr.number} --undo` }))))
         .child(div().text_size(17).font_semibold().line_height(1.3).text_color(t.foreground).child(pr.title))
         .child(h_flex().flex_wrap().gap(5).items_center().text_size(12).text_color(t.muted)
           .child(div().font_medium().text_color(t.foreground).child(pr.author?.login ?? ""))
@@ -703,7 +744,8 @@ export default class Review extends View {
           .child(div().text_color(t.muted).child(`${pr.changedFiles} files`))
           .child(div().text_color(t.ansi2).child(`+${pr.additions}`))
           .child(div().text_color(t.ansi1).child(`−${pr.deletions}`)))
-        .child(facts))
+        .child(facts)
+        .child(assigned))
       .when(pr.mergeable === "CONFLICTING" || pr.mergeStateStatus === "DIRTY", (e) => e.child(this.conflictCard(t, pr)))
       .when(this.threads.some((th) => !th.resolved), (e) => e.child(this.openThreadsCard(t)))
       // Description

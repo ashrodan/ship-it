@@ -110,7 +110,7 @@ export async function gitFacts(cwd, on) {
   };
 }
 
-const PR_FIELDS = "number,title,state,isDraft,url,baseRefName,headRefName,headRefOid,reviewDecision,author,additions,deletions,changedFiles,mergeable,mergeStateStatus,createdAt,updatedAt,labels,reviewRequests";
+const PR_FIELDS = "number,title,state,isDraft,url,baseRefName,headRefName,headRefOid,reviewDecision,author,additions,deletions,changedFiles,mergeable,mergeStateStatus,createdAt,updatedAt,labels,reviewRequests,assignees";
 export const PR_DETAIL = PR_FIELDS + ",body,comments,reviews";
 
 // { kind: "ok", pr } | { kind: "none" } | { kind: "unavailable", reason }

@@ -132,6 +132,8 @@ only on a click:
 | Action | Runs |
 | --- | --- |
 | Comment | `gh pr comment` |
+| Ready for review / Convert to draft | `gh pr ready <n>` / `gh pr ready <n> --undo` (open PRs only) |
+| Assign me, × on an assignee | `gh pr edit <n> --add-assignee @me` / `gh pr edit <n> --remove-assignee <login>` (open PRs only) |
 | Reply, Resolve, Reopen | GitHub GraphQL review-thread mutations |
 | Re-run failed | `gh run rerun --failed` |
 | Ship | `gh pr merge --squash` (or `--merge`/`--rebase`, whichever the repo allows) `--match-head-commit <sha>`, after a confirm. A push after the confirm opened makes GitHub refuse. The branch is kept. |
