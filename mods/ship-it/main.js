@@ -9,7 +9,7 @@
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { theme, run, layout, shared, setShared, panes, focused, watchFolder, notify, exec, openOverlay, nextCommand } from "herdr";
-import { READ, tilde, location, gitFacts, prFacts, PR_DETAIL, checks, threads, tally, baseRef, prLook, reviewLook, Recent, branchMoved, mergeUnknown, openDelta } from "./data.js";
+import { READ, tilde, location, gitFacts, prFacts, PR_DETAIL, checks, threads, tally, baseRef, prLook, reviewLook, Recent, branchMoved, mergeUnknown, openDelta, canBypass } from "./data.js";
 
 const ICON = (name) => `mods/ship-it/icons/${name}.svg`;
 // How long a launch flies before it merges: the time there is to stop it.
@@ -310,8 +310,15 @@ export default class ShipIt extends View {
     // The rocket waits at the left (go: false) until the repo says how it merges.
     const l = this.launch = { id: Date.now(), root: g.root, on: g.on, number: pr.number, sha: pr.headRefOid, head: pr.headRefName, base: pr.baseRefName, warn, method: null, go: false };
     cx.spawn(async (cx) => {
-      const r = await exec("gh", ["repo", "view", "--json", "squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed"], { cwd: l.root, on: l.on }).catch(() => null);
+      const [r, admin] = await Promise.all([
+        exec("gh", ["repo", "view", "--json", "squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed"], { cwd: l.root, on: l.on }).catch(() => null),
+        // GitHub's branch rules hold the merge back (a required review, an
+        // open conversation, a scan): a person the rules let through still
+        // ships, with --admin, and the launch says so.
+        pr.mergeStateStatus === "BLOCKED" ? canBypass(l.root, l.on, pr) : false,
+      ]);
       if (this.launch !== l) return; // stopped while it asked
+      if (admin) { l.admin = true; l.warn.push("goes past the branch rules (--admin)"); }
       let allowed = {};
       try { allowed = JSON.parse(r?.stdout || "{}"); } catch {}
       l.method = allowed.squashMergeAllowed !== false ? "squash" : allowed.mergeCommitAllowed ? "merge" : "rebase";
@@ -345,7 +352,7 @@ export default class ShipIt extends View {
     this.merging = true;
     cx.spawn(async (cx) => {
       try {
-        const args = ["pr", "merge", String(m.number), `--${m.method}`, ...(m.sha ? ["--match-head-commit", m.sha] : [])];
+        const args = ["pr", "merge", String(m.number), `--${m.method}`, ...(m.admin ? ["--admin"] : []), ...(m.sha ? ["--match-head-commit", m.sha] : [])];
         const r = await exec("gh", args, { cwd: m.root, on: m.on });
         if (r.code === 0) { notify({ title: `#${m.number} shipped`, body: "Merged on GitHub", level: "success", timeout: 4 }); this.confetti(); }
         else notify({ title: `#${m.number} not merged`, body: (r.stderr || r.stdout || "gh failed").trim().split("\n").slice(-2).join(" "), level: "error", timeout: 8 });

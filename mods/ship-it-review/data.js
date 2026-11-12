@@ -212,6 +212,16 @@ export async function threads(root, on, pr) {
   } catch { return []; }
 }
 
+// Whether GitHub lets this person merge the PR past the branch's rules
+// (`gh pr merge --admin`): an admin, or someone on the rules' bypass list.
+const BYPASS = "query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){viewerCanMergeAsAdmin}}}";
+export async function canBypass(root, on, pr) {
+  const repo = repoOf(pr?.url);
+  if (!repo) return false;
+  const r = await exec("gh", ["api", "graphql", "-f", `query=${BYPASS}`, "-F", `owner=${repo.owner}`, "-F", `name=${repo.name}`, "-F", `number=${repo.number}`, "--jq", ".data.repository.pullRequest.viewerCanMergeAsAdmin"], { cwd: root, on }).catch(() => null);
+  return r?.code === 0 && r.stdout.trim() === "true";
+}
+
 export const gql = (root, on, query, vars) =>
   exec("gh", ["api", "graphql", "-f", `query=${query}`, ...Object.entries(vars).flatMap(([k, v]) => ["-f", `${k}=${v}`])], { cwd: root, on });
 
