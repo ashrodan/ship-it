@@ -190,7 +190,8 @@ What they can't check is drawing: that needs the Herdr window
   `--sync` only refreshes the copies.
 - `scripts/test.sh` and `test/`: the tests; `.github/workflows/ci.yml` runs them.
 - `scripts/perf/`: the window-stall check (`run.sh`).
-- `scripts/showcase/`: builds the showcase video from window captures.
+- `scripts/showcase/`: builds the showcase video from window captures (`build.py`), and the
+  Ship launch video from a recording of the window (`launch.py`).
 - `docs/performance.md`: the stall investigation and its next steps.
 - `RECIPE.md`: the full spec, detailed enough for an agent to rebuild it.
 
