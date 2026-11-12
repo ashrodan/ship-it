@@ -5,7 +5,8 @@ import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import { state } from "./herdr.mjs";
 import { git, scratch, repoWithPrs } from "./git.mjs";
-import { checkState, checkCounts, localBranch, slug, worktrees, addWorktree, places, spaceAt, showSpace, treeLook } from "../mods/ship-it-prs/prs.js";
+import { checkState, checkCounts, localBranch, slug, worktrees, addWorktree, places, spaceAt, showSpace, treeLook, withoutGone, GONE_FOR } from "../mods/ship-it-prs/prs.js";
+import { branchMoved, mergeUnknown, openDelta } from "../mods/ship-it/data.js";
 
 const done = (conclusion) => ({ status: "COMPLETED", conclusion });
 
@@ -106,4 +107,48 @@ test("showing a checkout selects its space, else makes one", () => {
   showSpace("/w/y", null, ["/w/y"]);
   showSpace("/w/z", null, ["/w/y", "/w/z"]);
   assert.deepEqual(state.runs, [["space.select", { id: "s1" }], ["space.new", { folder: "/w/z" }]]);
+});
+
+// ---- staying current with GitHub
+
+const facts = (state, more = {}) => ({ kind: "ok", pr: { number: 7, state, mergeable: "MERGEABLE", ...more } });
+
+test("a commit, a push or a pull asks GitHub again; an edit doesn't", () => {
+  const was = { sha: "abc", ahead: 1, behind: 0, dirty: 0 };
+  assert.equal(branchMoved(was, { ...was, dirty: 3 }), false);
+  assert.equal(branchMoved(was, { ...was, sha: "def" }), true);
+  assert.equal(branchMoved(was, { ...was, ahead: 0 }), true);
+  assert.equal(branchMoved(was, { ...was, behind: 2 }), true);
+  assert.equal(branchMoved(null, was), false); // the first look loads the PR anyway
+});
+
+test("mergeability is unknown only for an open PR GitHub hasn't worked out", () => {
+  assert.equal(mergeUnknown(facts("OPEN", { mergeable: "UNKNOWN" })), true);
+  assert.equal(mergeUnknown(facts("OPEN")), false);
+  assert.equal(mergeUnknown(facts("MERGED", { mergeable: "UNKNOWN" })), false);
+  assert.equal(mergeUnknown({ kind: "none" }), false);
+  assert.equal(mergeUnknown(null), false);
+});
+
+test("the open PR count moves when a PR opens, merges or closes", () => {
+  assert.equal(openDelta(facts("OPEN"), facts("MERGED")), -1);
+  assert.equal(openDelta(facts("OPEN"), facts("CLOSED")), -1);
+  assert.equal(openDelta({ kind: "none" }, facts("OPEN")), 1);
+  assert.equal(openDelta(facts("MERGED"), facts("OPEN", { number: 8 })), 1);
+  assert.equal(openDelta(facts("OPEN"), facts("OPEN")), 0);
+  assert.equal(openDelta(facts("MERGED"), facts("MERGED")), 0);
+  // No first read, or gh down on either side: nothing is known to have moved.
+  assert.equal(openDelta(undefined, facts("OPEN")), 0);
+  assert.equal(openDelta(facts("OPEN"), { kind: "unavailable", reason: "x" }), 0);
+  assert.equal(openDelta({ kind: "unavailable", reason: "x" }, facts("MERGED")), 0);
+});
+
+test("a PR the strip saw merge stays out of the list while GitHub's search catches up", () => {
+  const list = [{ number: 1, url: "u/1" }, { number: 2, url: "u/2" }], now = 1e6;
+  const gone = new Map([["u/2", now - 5000]]);
+  assert.deepEqual(withoutGone(list, gone, now).map((p) => p.number), [1]);
+  // Later it is GitHub's word again, and the note is dropped.
+  assert.deepEqual(withoutGone(list, gone, now + GONE_FOR).map((p) => p.number), [1, 2]);
+  assert.equal(gone.size, 0);
+  assert.equal(withoutGone(list, new Map(), now), list);
 });

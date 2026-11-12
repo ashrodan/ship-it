@@ -23,6 +23,25 @@ export function checkCounts(rollup) {
   for (const c of rollup ?? []) n[checkState([c]) ?? "pass"]++;
   return n;
 }
+// ---- what the strip saw happen to a PR (shared "ship-it.moved")
+
+// GitHub's search lists a PR as open for a while after it merges or closes:
+// the ones the strip saw go (url -> when) stay out of the list for 2 minutes.
+export const GONE_FOR = 120000;
+export function withoutGone(list, gone, now = Date.now()) {
+  for (const [url, at] of gone) if (now - at > GONE_FOR) gone.delete(url);
+  return gone.size ? list.filter((pr) => !gone.has(pr.url)) : list;
+}
+
+// All open PRs, counted without fetching them (gh fills in {owner} and {repo}).
+const TOTAL = "query($owner:String!,$name:String!){repository(owner:$owner,name:$name){pullRequests(states:OPEN){totalCount}}}";
+// The repo's open PR count, or null when gh can't say.
+export async function openCount(root, on) {
+  const r = await exec("gh", ["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-f", `query=${TOTAL}`, "--jq", ".data.repository.pullRequests.totalCount"], { cwd: root, on }).catch(() => null);
+  const text = r?.code === 0 ? r.stdout.trim() : "", n = Number(text);
+  return text && Number.isFinite(n) ? n : null;
+}
+
 // ---- worktrees: a PR's branch checked out beside the repo, as a space
 
 // The branch a PR is checked out on here: its own, or pr-<n> for a fork's.

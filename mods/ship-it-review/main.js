@@ -124,6 +124,18 @@ export default class Review extends View {
     this.mapThreads();
   }
 
+  // What this review just read from GitHub goes to the strip too, when the
+  // strip is on this branch: its Ship button then acts on the same facts (a
+  // PR marked ready here is no draft there). Same shape as the strip's own,
+  // with `by` so the strip knows to take it.
+  share(pr, list, threadList) {
+    const s = this.stripPr();
+    if (!s || pr.kind !== "ok") return;
+    const next = { root: s.root, on: s.on, branch: s.branch, kind: "ok", pr: pr.pr, checks: list, threads: threadList };
+    const { at, by, ...old } = s;
+    if (JSON.stringify(old) !== JSON.stringify(next)) setShared("ship-it.pr", { ...next, at: this.prAt, by: "review" });
+  }
+
   // ---- loading
 
   // Hidden (another tab, another space), it loads nothing until it shows.
@@ -151,7 +163,7 @@ export default class Review extends View {
         }
         // The strip asked GitHub under a minute ago: no need to ask again.
         const strip = this.stripPr();
-        let pr, list, threadList, base;
+        let pr, list, threadList, base, asked = false;
         if (!force && strip && Date.now() - strip.at < 60000) {
           this.adopt(strip); pr = this.pr; list = this.checks; threadList = this.threads;
           cx.notify();
@@ -167,10 +179,12 @@ export default class Review extends View {
             ok ? threads(root, on, pr.pr).catch(() => []) : [],
             baseRef(root, on, pr.pr),
           ]);
+          asked = true;
         }
         if (gen !== this.gen) return;
         const ok = pr.kind === "ok";
         this.checks = list; this.threads = threadList; this.base = base; this.mapThreads();
+        if (asked) this.share(pr, list, threadList);
         // Only when GitHub says so: the in-memory merge stores loose objects.
         this.conflicts = ok && (pr.pr.mergeable === "CONFLICTING" || pr.pr.mergeStateStatus === "DIRTY") && base ? await conflicts(root, on, base).catch(() => null) : null;
         if (gen !== this.gen) return;

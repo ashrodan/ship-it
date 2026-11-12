@@ -10,15 +10,13 @@ import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { exec, shared, setShared, notify, theme, nextCommand } from "herdr";
 import { READ, location, ago, prLook, reviewLook, panelShown, Recent, tilde } from "./data.js";
-import { checkState, checkCounts, localBranch, worktrees, addWorktree, places, spaceAt, showSpace, treeLook } from "./prs.js";
+import { checkState, checkCounts, localBranch, worktrees, addWorktree, places, spaceAt, showSpace, treeLook, withoutGone, openCount } from "./prs.js";
 
 const ICON = (name) => `mods/ship-it/icons/${name}.svg`;
 const FIELDS = "number,title,author,isDraft,state,url,headRefName,isCrossRepository,labels,baseRefName,reviewDecision,reviewRequests,updatedAt,additions,deletions,statusCheckRollup";
 const FILTERS = [["all", "All"], ["mine", "Mine"], ["review", "To review"]];
 const SEARCH = { all: "sort:updated-desc", mine: "author:@me sort:updated-desc", review: "review-requested:@me sort:updated-desc" };
 const PAGE = 10;
-// All open PRs, counted without fetching them (gh fills in {owner} and {repo}).
-const TOTAL = "query($owner:String!,$name:String!){repository(owner:$owner,name:$name){pullRequests(states:OPEN){totalCount}}}";
 
 const CHECK = { fail: ["circle-x", "ansi1", "Checks failing"], pending: ["circle-dot", "ansi3", "Checks running"], pass: ["circle-check", "ansi2", "Checks passed"] };
 
@@ -28,8 +26,10 @@ export default class PullRequests extends View {
     this.expanded = null; // the PR whose details show
     // Last list per folder: switching back shows it at once.
     this.memo = new Recent(12);
+    // PRs the strip saw merge or close (url -> when), and its last word read.
+    this.gone = new Map(); this.movedSeen = shared("ship-it.moved")?.at ?? 0;
     this.refresh(cx);
-    cx.timer.every(60000, (cx) => this.refresh(cx));
+    cx.timer.every(60000, (cx) => { this.follow(cx); this.refresh(cx); });
     cx.spawn(async (cx) => { for (;;) { this.command(await nextCommand(), cx); cx.notify(); } });
   }
 
@@ -46,6 +46,27 @@ export default class PullRequests extends View {
   key() {
     this.last = location(this.last);
     return JSON.stringify([this.last.cwd, this.last.on]);
+  }
+
+  // The strip saw a PR open, merge or close (a Ship, or its own poll): a
+  // merged one leaves the list now, and the list reloads. Hidden, only the
+  // count the strip shows is asked for (one call per PR that moved).
+  follow(cx) {
+    const m = shared("ship-it.moved");
+    if (!m?.at || m.at <= this.movedSeen) return;
+    this.movedSeen = m.at;
+    if (!m.open && m.url) {
+      this.gone.set(m.url, m.at);
+      const left = this.prs.filter((pr) => pr.url !== m.url);
+      if (left.length !== this.prs.length) { this.prs = left; if (this.total) this.total--; if (this.expanded === m.number) this.expanded = null; }
+    }
+    this.stale = true;
+    if (this.shown()) return;
+    cx.spawn(async () => {
+      const count = await openCount(m.root, m.on), was = shared("ship-it.prs");
+      if (count === null) return;
+      if (was?.root !== m.root || (was?.on ?? null) !== (m.on ?? null) || was?.count !== count) setShared("ship-it.prs", { root: m.root, on: m.on ?? null, count });
+    });
   }
 
   // Hidden, it only notes that it is out of date; showing it catches up.
@@ -73,7 +94,7 @@ export default class PullRequests extends View {
         // so Mine and To review aren't limited to the page already loaded.
         const [list, total, branch, trees] = await Promise.all([
           exec("gh", ["pr", "list", "--state", "open", "--limit", String(limit), "--search", SEARCH[filter], "--json", FIELDS], { cwd: root, on }),
-          exec("gh", ["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-f", `query=${TOTAL}`, "--jq", ".data.repository.pullRequests.totalCount"], { cwd: root, on }).catch(() => null),
+          openCount(root, on),
           exec("git", [...READ, "branch", "--show-current"], { cwd: root, on }),
           worktrees(root, on),
         ]);
@@ -84,10 +105,10 @@ export default class PullRequests extends View {
           this.root = root; this.prs = []; return;
         }
         this.root = root; this.on = on; this.branch = branch.stdout.trim() || null; this.trees = trees;
-        this.prs = JSON.parse(list.stdout || "[]");
-        this.more = this.prs.length >= limit;
-        const n = Number(total?.stdout?.trim());
-        if (total?.code === 0 && total.stdout.trim() && Number.isFinite(n)) this.total = n;
+        const found = JSON.parse(list.stdout || "[]");
+        this.more = found.length >= limit;
+        this.prs = withoutGone(found, this.gone);
+        if (total !== null) this.total = total;
         this.error = null;
         this.memo.set(memo, { root, on, branch: this.branch, trees, prs: this.prs, more: this.more, total: this.total, limit });
         // Shared state redraws every mod: write it only when it changes.
@@ -105,6 +126,7 @@ export default class PullRequests extends View {
     this.root = null; this.prs = []; this.error = null; this.branch = null; this.more = false; this.total = null; this.trees = {};
     const m = this.memo.get(this.memoKey());
     if (m) Object.assign(this, m);
+    this.prs = withoutGone(this.prs, this.gone);
   }
 
   pick(filter, cx) {
@@ -195,6 +217,7 @@ export default class PullRequests extends View {
   }
 
   render(cx) {
+    this.follow(cx);
     if (this.shown() && (this.stale || this.key() !== this.context)) this.refresh(cx, false, true);
     const t = theme(), list = this.prs, where = list.length ? places(this.on) : [];
     const empty = this.error || (this.loading ? "Loading pull requests…" : this.filter === "all" ? "No open pull requests" : this.filter === "mine" ? "No open pull requests of yours" : "Nothing waiting for your review");

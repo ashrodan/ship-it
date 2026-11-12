@@ -148,6 +148,30 @@ export function tally(list) {
   return t;
 }
 
+// ---- when GitHub is asked again, and what a new answer means
+
+// A commit, a push or a pull moved the branch since the last look: the PR's
+// head commit, checks and mergeability on GitHub are no longer what was read.
+export function branchMoved(was, now) {
+  return Boolean(was && now && (was.sha !== now.sha || was.ahead !== now.ahead || was.behind !== now.behind));
+}
+
+// GitHub works mergeability out after a push or a move of the base, and only
+// once it is asked: until then an open PR says UNKNOWN.
+export const mergeUnknown = (p) => p?.kind === "ok" && p.pr.state === "OPEN" && p.pr.mergeable === "UNKNOWN";
+
+// Between two reads of a branch's PR: 1 when one opened, -1 when it merged
+// or closed, 0 when the repo's open PRs are as many as before (or a read
+// couldn't tell).
+export function openDelta(before, after) {
+  const known = (p) => p?.kind === "ok" || p?.kind === "none";
+  if (!known(before) || !known(after)) return 0;
+  const open = (p) => (p.kind === "ok" && p.pr.state === "OPEN" ? p.pr.number : null);
+  const a = open(before), b = open(after);
+  if (a === b || (a && b)) return 0;
+  return b ? 1 : after.kind === "ok" ? -1 : 0;
+}
+
 // The ref the branch is compared with: the PR's base, else origin/HEAD, else main, else master.
 export async function baseRef(root, on, pr) {
   const candidates = [];
