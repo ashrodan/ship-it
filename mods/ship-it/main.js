@@ -260,7 +260,7 @@ export default class ShipIt extends View {
     const open = (this.threads ?? []).filter((th) => !th.resolved).length;
     if (open) warn.push(`${open} open thread${open > 1 ? "s" : ""}`);
     // The rocket waits at the left (go: false) until the repo says how it merges.
-    const l = this.launch = { root: g.root, on: g.on, number: pr.number, sha: pr.headRefOid, head: pr.headRefName, base: pr.baseRefName, warn, method: null, go: false };
+    const l = this.launch = { id: Date.now(), root: g.root, on: g.on, number: pr.number, sha: pr.headRefOid, head: pr.headRefName, base: pr.baseRefName, warn, method: null, go: false };
     cx.spawn(async (cx) => {
       const r = await exec("gh", ["repo", "view", "--json", "squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed"], { cwd: l.root, on: l.on }).catch(() => null);
       if (this.launch !== l) return; // stopped while it asked
@@ -342,7 +342,9 @@ export default class ShipIt extends View {
 
   // The strip during a launch: the rocket crosses it in COUNTDOWN ms with a
   // trail behind it, both native transitions (no timer redraws the window).
-  // The whole strip stops the launch on a click.
+  // The whole strip stops the launch on a click. The moving parts carry the
+  // launch's id: a new launch must not inherit the motion of one that was
+  // stopped midway (it then draws at the end at once, with no flight).
   launchBar(t, l) {
     const how = { squash: "Squash and merge", merge: "Merge", rebase: "Rebase and merge" }[l.method];
     const fly = { duration: COUNTDOWN, easing: "linear" }, end = Math.max(0, this.width - 30);
@@ -350,14 +352,14 @@ export default class ShipIt extends View {
       .text_size(12).text_color(t.foreground).overflow_hidden().cursor_pointer()
       .on_size_change((size, cx) => { if (Math.abs(size.width - this.width) > 1) { this.width = size.width; cx.notify(); } })
       .on_click((_e, cx) => { this.stop("Stopped before the merge"); cx.notify(); })
-      .child(div().id("launch-trail").absolute().left(0).top(0).bottom(0).w(l.go ? end + 8 : 0).bg(t.accent + "2e").transition("width", fly))
+      .child(div().id(`launch-trail-${l.id}`).absolute().left(0).top(0).bottom(0).w(l.go ? end + 8 : 0).bg(t.accent + "2e").transition("width", fly))
       .child(h_flex().flex_1().min_w(0).pl(34).gap(8).items_center().whitespace_nowrap()
         .child(div().flex_none().font_semibold().child(`Shipping #${l.number}`))
         .child(div().min_w(0).truncate().text_color(t.muted).child(how ? `${how} ${l.head} into ${l.base}` : `${l.head} into ${l.base}…`))
         .when(l.warn.length > 0, (e) => e.child(div().flex_none().text_color(t.ansi3).child(`Note: ${l.warn.join(", ")}`))))
       .child(h_flex().id("launch-stop").h(26).px(10).gap(6).flex_none().items_center().rounded(6).border_1().border_color(t.border).bg(t.background)
         .hover((s) => s.bg(t.hover)).child(this.icon("x", t.muted, 13)).child(div().font_semibold().child("Stop")))
-      .child(div().id("launch-rocket").absolute().top(10).left(l.go ? end : 8).transition("left", fly).child(this.icon("rocket", t.accent, 18)));
+      .child(div().id(`launch-rocket-${l.id}`).absolute().top(10).left(l.go ? end : 8).transition("left", fly).child(this.icon("rocket", t.accent, 18)));
   }
 
   folder(t, narrow) {
