@@ -9,7 +9,7 @@
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { theme, run, layout, shared, setShared, panes, focused, watchFolder, notify, exec, openOverlay, nextCommand } from "herdr";
-import { READ, tilde, location, gitFacts, prFacts, PR_DETAIL, checks, threads, tally, baseRef, prLook, reviewLook, Recent } from "./data.js";
+import { READ, tilde, location, gitFacts, prFacts, PR_DETAIL, checks, threads, tally, baseRef, prLook, reviewLook, Recent, branchMoved, mergeUnknown, openDelta, canBypass } from "./data.js";
 
 const ICON = (name) => `mods/ship-it/icons/${name}.svg`;
 // How long a launch flies before it merges: the time there is to stop it.
@@ -34,9 +34,10 @@ export default class ShipIt extends View {
     // A local repo's folder watch catches edits, so its poll is only a backstop.
     cx.timer.every(5000, (cx) => { if (this.loc?.on || !this.watched || (this.poll = (this.poll ?? 0) + 1) % 6 === 0) this.refreshGit(cx); });
     cx.timer.every(30000, (cx) => {
-      // Pending checks move fast; settled ones are polled gently.
+      // Pending checks move fast; settled ones are polled every minute (a
+      // merge or a review on GitHub shows no later than that).
       const pending = tally(this.checks).pending > 0;
-      if (pending || (this.tick = (this.tick ?? 0) + 1) % 4 === 0) this.refreshPr(cx);
+      if (pending || (this.tick = (this.tick ?? 0) + 1) % 2 === 0) this.refreshPr(cx);
     });
     // Bindable from keys.json ("ship-it.ship", "ship-it.stop") or `herdr-app do`.
     cx.spawn(async (cx) => { for (;;) { this.command(await nextCommand(), cx); cx.notify(); } });
@@ -71,6 +72,10 @@ export default class ShipIt extends View {
         // branch, or when what is known is over 20 s old.
         if (arrived || moved) this.publish();
         if (branchKey && (moved || !known?.at || (arrived && Date.now() - known.at > 20000))) this.refreshPr(cx);
+        // A commit, a push or a pull: GitHub has a new head, new checks and a
+        // new answer on conflicts. Ship merges the head it last read, so an
+        // old one makes GitHub refuse.
+        else if (branchKey && branchMoved(was, facts)) this.refreshPr(cx, true);
         else if (facts && (!this.stat || was?.dirty !== facts.dirty || was?.sha !== facts.sha)) this.refreshStat(cx);
       } catch { if (key === this.locKey) this.git = null; }
       finally { this.gitBusy = false; this.first = false; if (changed) cx.notify(); }
@@ -91,13 +96,17 @@ export default class ShipIt extends View {
     });
   }
 
-  refreshPr(cx) {
+  // `again`: GitHub changed after a running load began (a merge, a push, a
+  // write from the review), so that load is followed by one more.
+  refreshPr(cx, again) {
     const g = this.git, key = this.branchKey;
+    if (!g) return;
     // One load per branch at a time; a load for a branch left behind doesn't block this one.
-    if (!g || this.prBusy === key) return;
+    if (this.prBusy === key) { if (again) this.prAgain = key; return; }
     this.prBusy = key;
     cx.spawn(async (cx) => {
       try {
+        const before = this.prs.get(key)?.pr;
         const pr = await prFacts(g.root, g.on, PR_DETAIL), ok = pr.kind === "ok";
         if (key === this.branchKey) this.pr = pr;
         const [list, threadList, base] = await Promise.all([
@@ -108,13 +117,52 @@ export default class ShipIt extends View {
         // Cached even when the branch was left meanwhile: going back shows it.
         const entry = { ...this.prs.get(key), pr, checks: list, threads: threadList, base: { ref: base, key }, at: Date.now() };
         this.prs.set(key, entry);
+        this.noteMove(g, before, pr);
         if (key !== this.branchKey) return;
         this.pr = pr; this.checks = list; this.threads = threadList; this.base = entry.base;
         this.publish();
+        this.askAgainIfUnknown(key, pr, cx);
         await this.refreshStat(cx, key);
       } catch (e) { if (key === this.branchKey) this.pr = { kind: "unavailable", reason: String(e) }; }
-      finally { if (this.prBusy === key) this.prBusy = null; cx.notify(); }
+      finally {
+        if (this.prBusy === key) this.prBusy = null;
+        if (this.prAgain === key) { this.prAgain = null; if (key === this.branchKey) this.refreshPr(cx); }
+        cx.notify();
+      }
     });
+  }
+
+  // The PR opened, merged or closed since the last read: the PRs panel hears
+  // of it (ship-it.moved), so its list and the count beside the repo's name
+  // don't wait for the panel's own poll.
+  noteMove(g, before, after) {
+    const d = openDelta(before, after);
+    if (!d) return;
+    const pr = d > 0 ? after.pr : before.pr;
+    setShared("ship-it.moved", { root: g.root, on: g.on ?? null, number: pr.number, url: pr.url, open: d > 0, at: Date.now() });
+  }
+
+  // GitHub says UNKNOWN until it has worked mergeability out, and it starts
+  // when asked: ask again in 3 s, 4 times at most for one spell.
+  askAgainIfUnknown(key, pr, cx) {
+    if (!mergeUnknown(pr)) { this.unknown = null; return; }
+    const n = this.unknown?.key === key ? this.unknown.n : 0;
+    if (n >= 4) return;
+    this.unknown = { key, n: n + 1 };
+    cx.timer.after(3000, (cx) => { if (key === this.branchKey) this.refreshPr(cx); });
+  }
+
+  // The review asked GitHub itself (a comment, Ready for review, r) and
+  // shared what it read: take it, so Ship doesn't act on older facts.
+  take() {
+    const g = this.git, s = shared("ship-it.pr"), key = this.branchKey;
+    if (!g || !key || s?.by !== "review" || s.kind !== "ok" || s.at <= (this.took ?? 0)) return;
+    if (s.root !== g.root || (s.on ?? null) !== (g.on ?? null) || s.branch !== g.branch) return;
+    this.took = s.at;
+    this.pr = { kind: "ok", pr: s.pr }; this.checks = s.checks; this.threads = s.threads;
+    this.prs.set(key, { ...this.prs.get(key), pr: this.pr, checks: this.checks, threads: this.threads, at: s.at });
+    // A load of ours that began before the review's would bring older facts back.
+    if (this.prBusy === key) this.prAgain = key;
   }
 
   // Files, additions and deletions on the branch since its base, uncommitted included.
@@ -166,7 +214,7 @@ export default class ShipIt extends View {
     const base = this.base?.key === this.branchKey ? this.base.ref : null, now = shared("ship-it.base");
     if (base && (now?.root !== g.root || (now?.on ?? null) !== (g.on ?? null) || now?.ref !== base)) setShared("ship-it.base", { root: g.root, on: g.on ?? null, ref: base });
     const next = { root: g.root, on: g.on ?? null, branch: g.branch, kind: p.kind, pr: p.kind === "ok" ? p.pr : null, checks: this.checks, threads: this.threads };
-    const was = shared("ship-it.pr"), { at, ...old } = was ?? {};
+    const was = shared("ship-it.pr"), { at, by, ...old } = was ?? {};
     if (JSON.stringify(old) !== JSON.stringify(next)) setShared("ship-it.pr", { ...next, at: Date.now() });
     this.published = Date.now();
   }
@@ -262,8 +310,15 @@ export default class ShipIt extends View {
     // The rocket waits at the left (go: false) until the repo says how it merges.
     const l = this.launch = { id: Date.now(), root: g.root, on: g.on, number: pr.number, sha: pr.headRefOid, head: pr.headRefName, base: pr.baseRefName, warn, method: null, go: false };
     cx.spawn(async (cx) => {
-      const r = await exec("gh", ["repo", "view", "--json", "squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed"], { cwd: l.root, on: l.on }).catch(() => null);
+      const [r, admin] = await Promise.all([
+        exec("gh", ["repo", "view", "--json", "squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed"], { cwd: l.root, on: l.on }).catch(() => null),
+        // GitHub's branch rules hold the merge back (a required review, an
+        // open conversation, a scan): a person the rules let through still
+        // ships, with --admin, and the launch says so.
+        pr.mergeStateStatus === "BLOCKED" ? canBypass(l.root, l.on, pr) : false,
+      ]);
       if (this.launch !== l) return; // stopped while it asked
+      if (admin) { l.admin = true; l.warn.push("goes past the branch rules (--admin)"); }
       let allowed = {};
       try { allowed = JSON.parse(r?.stdout || "{}"); } catch {}
       l.method = allowed.squashMergeAllowed !== false ? "squash" : allowed.mergeCommitAllowed ? "merge" : "rebase";
@@ -297,12 +352,12 @@ export default class ShipIt extends View {
     this.merging = true;
     cx.spawn(async (cx) => {
       try {
-        const args = ["pr", "merge", String(m.number), `--${m.method}`, ...(m.sha ? ["--match-head-commit", m.sha] : [])];
+        const args = ["pr", "merge", String(m.number), `--${m.method}`, ...(m.admin ? ["--admin"] : []), ...(m.sha ? ["--match-head-commit", m.sha] : [])];
         const r = await exec("gh", args, { cwd: m.root, on: m.on });
         if (r.code === 0) { notify({ title: `#${m.number} shipped`, body: "Merged on GitHub", level: "success", timeout: 4 }); this.confetti(); }
         else notify({ title: `#${m.number} not merged`, body: (r.stderr || r.stdout || "gh failed").trim().split("\n").slice(-2).join(" "), level: "error", timeout: 8 });
       } catch (e) { notify({ title: `#${m.number} not merged`, body: String(e), level: "error", timeout: 8 }); }
-      finally { this.merging = false; this.refreshPr(cx); cx.notify(); }
+      finally { this.merging = false; this.refreshPr(cx, true); cx.notify(); }
     });
   }
 
@@ -465,6 +520,7 @@ export default class ShipIt extends View {
       if (this.locKey) this.stop("The focus moved to another folder");
       this.refreshGit(cx);
     }
+    this.take();
     const t = theme(), g = this.git, narrow = this.width < 900, p = this.panel();
     if (this.launch) return this.launchBar(t, this.launch);
     // Each is null when there is nothing to show (prButton while the PR loads).

@@ -148,6 +148,30 @@ export function tally(list) {
   return t;
 }
 
+// ---- when GitHub is asked again, and what a new answer means
+
+// A commit, a push or a pull moved the branch since the last look: the PR's
+// head commit, checks and mergeability on GitHub are no longer what was read.
+export function branchMoved(was, now) {
+  return Boolean(was && now && (was.sha !== now.sha || was.ahead !== now.ahead || was.behind !== now.behind));
+}
+
+// GitHub works mergeability out after a push or a move of the base, and only
+// once it is asked: until then an open PR says UNKNOWN.
+export const mergeUnknown = (p) => p?.kind === "ok" && p.pr.state === "OPEN" && p.pr.mergeable === "UNKNOWN";
+
+// Between two reads of a branch's PR: 1 when one opened, -1 when it merged
+// or closed, 0 when the repo's open PRs are as many as before (or a read
+// couldn't tell).
+export function openDelta(before, after) {
+  const known = (p) => p?.kind === "ok" || p?.kind === "none";
+  if (!known(before) || !known(after)) return 0;
+  const open = (p) => (p.kind === "ok" && p.pr.state === "OPEN" ? p.pr.number : null);
+  const a = open(before), b = open(after);
+  if (a === b || (a && b)) return 0;
+  return b ? 1 : after.kind === "ok" ? -1 : 0;
+}
+
 // The ref the branch is compared with: the PR's base, else origin/HEAD, else main, else master.
 export async function baseRef(root, on, pr) {
   const candidates = [];
@@ -186,6 +210,16 @@ export async function threads(root, on, pr) {
       comments: n.comments.nodes.map((c) => ({ id: c.id, author: c.author?.login ?? "ghost", body: c.body, createdAt: c.createdAt, url: c.url })),
     }));
   } catch { return []; }
+}
+
+// Whether GitHub lets this person merge the PR past the branch's rules
+// (`gh pr merge --admin`): an admin, or someone on the rules' bypass list.
+const BYPASS = "query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){viewerCanMergeAsAdmin}}}";
+export async function canBypass(root, on, pr) {
+  const repo = repoOf(pr?.url);
+  if (!repo) return false;
+  const r = await exec("gh", ["api", "graphql", "-f", `query=${BYPASS}`, "-F", `owner=${repo.owner}`, "-F", `name=${repo.name}`, "-F", `number=${repo.number}`, "--jq", ".data.repository.pullRequest.viewerCanMergeAsAdmin"], { cwd: root, on }).catch(() => null);
+  return r?.code === 0 && r.stdout.trim() === "true";
 }
 
 export const gql = (root, on, query, vars) =>
