@@ -37,8 +37,10 @@ strip, PR changes, the review, the PR list and Ship.
   its checkout), **Open worktree** (checked out, no space yet) or **Create
   worktree** (checks the PR out first). The icon at a row's end does the same
   in one click: an accent branch, an accent folder, or a dim branch-plus.
-- **Ship** merges the pull request, after a confirm that says how, into what,
-  and what still looks wrong (failing checks, no approval, open threads).
+- **Ship** merges the pull request. There is no dialog: for 3 seconds a rocket
+  crosses the strip, which says how it merges, into what, and what still
+  looks wrong (failing checks, no approval, open threads). Click the strip to
+  stop it. When the merge lands, confetti falls over the window.
 - **The review** (the PR button on the strip) opens in the side panel, like
   Changes, and has three tabs:
   **Overview** (description, conversation, conflicts with a copyable list,
@@ -120,6 +122,8 @@ file · `v` viewed · `n` next unviewed · `e` open the file · `⌘↵` post ·
 (`ship-it-review.files`, `ship-it-review.next-unviewed`, …). The PRs panel
 has `ship-it-prs.more`, `.refresh`, `.all`, `.mine`, `.review` and
 `.worktree-<number>` (open that PR in a worktree space) and `.details-<number>`.
+The strip has `ship-it.ship` (start the launch), `ship-it.stop` and
+`ship-it.confetti` (only the paper, nothing merges).
 
 ## What it does on your behalf
 
@@ -132,7 +136,7 @@ only on a click:
 | Comment | `gh pr comment` |
 | Reply, Resolve, Reopen | GitHub GraphQL review-thread mutations |
 | Re-run failed | `gh run rerun --failed` |
-| Ship | `gh pr merge --squash` (or `--merge`/`--rebase`, whichever the repo allows) `--match-head-commit <sha>`, after a confirm. A push after the confirm opened makes GitHub refuse. The branch is kept. |
+| Ship | `gh pr merge --squash` (or `--merge`/`--rebase`, whichever the repo allows) `--match-head-commit <sha>`, 3 seconds after the click unless you stop the launch (click the strip, or `ship-it.stop`). It also stops when the focus moves to another folder. A push after the click makes GitHub refuse. The branch is kept. |
 | Create | `gh pr create --web` |
 | Worktree (a PR's branch button) | `git fetch origin <branch>`, then `git worktree add --track -b <branch> ~/.herdr/worktrees/<repo>/<branch> origin/<branch>` (a local branch of that name is checked out as it is). A fork's PR: `git fetch origin pull/<n>/head` on a new `pr-<n>`. Then a space opens on it, nested under the repo's. When the checkout exists, its space is shown instead. |
 
@@ -179,6 +183,7 @@ What they can't check is drawing: that needs the Herdr window
 - `mods/ship-it-review/`: the review (a panel, or a pane), and `files.js` (the branch diff).
 - `mods/ship-it-changes/`, `mods/ship-it-prs/`: the two panels.
 - `mods/ship-it-file/`: the read-only file pane.
+- `mods/ship-it-confetti/`: the confetti a merge throws (a frameless window that closes itself).
 - `scripts/install.sh`: copies the shared `data.js`, `files.js` and icons
   into the mods that use them (a mod can't import from another), installs
   and checks the mods, and with `--layout` runs `scripts/add-to-layout.py`.

@@ -3,7 +3,7 @@
 // to shipped. On the right: the PR button (number, state, title) opens the
 // ship-it-review pane, the changes button what the branch changes in the side
 // panel, PRs the repo's open pull requests, and Ship merges this one (after a
-// confirm). Checks, threads and the review beside the branch open the review
+// 3 s launch across the strip that a click stops; confetti when it lands). Checks, threads and the review beside the branch open the review
 // too. It follows the focused pane.
 
 import { View, div, svg } from "gpui-kit";
@@ -12,6 +12,8 @@ import { theme, run, layout, shared, setShared, panes, focused, watchFolder, not
 import { READ, tilde, location, gitFacts, prFacts, PR_DETAIL, checks, threads, tally, baseRef, prLook, reviewLook, Recent } from "./data.js";
 
 const ICON = (name) => `mods/ship-it/icons/${name}.svg`;
+// How long a launch flies before it merges: the time there is to stop it.
+const COUNTDOWN = 3000;
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -36,8 +38,8 @@ export default class ShipIt extends View {
       const pending = tally(this.checks).pending > 0;
       if (pending || (this.tick = (this.tick ?? 0) + 1) % 4 === 0) this.refreshPr(cx);
     });
-    // "ship-it.merge" comes back from the confirm dialog Ship opens.
-    cx.spawn(async (cx) => { for (;;) { const c = await nextCommand(); if (c === "merge" || c === "ship-it.merge") this.merge(cx); cx.notify(); } });
+    // Bindable from keys.json ("ship-it.ship", "ship-it.stop") or `herdr-app do`.
+    cx.spawn(async (cx) => { for (;;) { this.command(await nextCommand(), cx); cx.notify(); } });
   }
 
   // Git facts for the focused folder; a new repo or branch also refreshes the PR.
@@ -237,14 +239,19 @@ export default class ShipIt extends View {
     return null;
   }
 
-  // Asks first: what merges into what, how, and anything that looks wrong.
-  async ship(cx) {
+  command(name, cx) {
+    const c = String(name).replace(/^ship-it[.:]/, "");
+    if (c === "ship") this.ship(cx);
+    else if (c === "stop") this.stop("Stopped before the merge");
+    else if (c === "confetti") this.confetti();
+  }
+
+  // No dialog: the strip becomes a launch for COUNTDOWN ms and says what
+  // merges into what, how, and anything that looks wrong. A click on it (or
+  // "ship-it.stop") stops it; left alone, it merges when the rocket arrives.
+  ship(cx) {
     const g = this.git, pr = this.pr?.pr;
-    if (!g || !pr || this.shipBlock()) return;
-    const r = await exec("gh", ["repo", "view", "--json", "squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed"], { cwd: g.root, on: g.on }).catch(() => null);
-    let allowed = {};
-    try { allowed = JSON.parse(r?.stdout || "{}"); } catch {}
-    const method = allowed.squashMergeAllowed !== false ? "squash" : allowed.mergeCommitAllowed ? "merge" : "rebase";
+    if (!g || !pr || this.launch || this.shipBlock()) return;
     const c = tally(this.checks), warn = [];
     if (c.fail + c.cancel) warn.push(`${c.fail + c.cancel} check${c.fail + c.cancel > 1 ? "s" : ""} failing`);
     if (c.pending) warn.push(`${c.pending} check${c.pending > 1 ? "s" : ""} still running`);
@@ -252,27 +259,47 @@ export default class ShipIt extends View {
     else if (pr.reviewDecision === "REVIEW_REQUIRED") warn.push("not approved yet");
     const open = (this.threads ?? []).filter((th) => !th.resolved).length;
     if (open) warn.push(`${open} open thread${open > 1 ? "s" : ""}`);
-    this.pendingMerge = { root: g.root, on: g.on, number: pr.number, sha: pr.headRefOid, method, at: Date.now() };
-    const how = { squash: "Squash and merge", merge: "Merge", rebase: "Rebase and merge" }[method];
-    openOverlay({ mod: "confirm", kind: "dialog", width: 420, height: 200, props: {
-      title: `Ship #${pr.number}?`,
-      detail: `${how} ${pr.headRefName} into ${pr.baseRefName}.${warn.length ? ` Note: ${warn.join(", ")}.` : ""} The branch stays.`,
-      command: { name: "ship-it.merge" },
-    } });
+    // The rocket waits at the left (go: false) until the repo says how it merges.
+    const l = this.launch = { root: g.root, on: g.on, number: pr.number, sha: pr.headRefOid, head: pr.headRefName, base: pr.baseRefName, warn, method: null, go: false };
+    cx.spawn(async (cx) => {
+      const r = await exec("gh", ["repo", "view", "--json", "squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed"], { cwd: l.root, on: l.on }).catch(() => null);
+      if (this.launch !== l) return; // stopped while it asked
+      let allowed = {};
+      try { allowed = JSON.parse(r?.stdout || "{}"); } catch {}
+      l.method = allowed.squashMergeAllowed !== false ? "squash" : allowed.mergeCommitAllowed ? "merge" : "rebase";
+      l.go = true;
+      cx.timer.after(COUNTDOWN, (cx) => {
+        if (this.launch !== l) return;
+        this.launch = null;
+        if (this.git?.root === l.root) this.merge(l, cx);
+        cx.notify();
+      });
+      cx.notify();
+    });
   }
 
-  // Merges exactly the commit that was shown (--match-head-commit): a push in
-  // between makes GitHub refuse rather than merge something unseen.
-  merge(cx) {
-    const m = this.pendingMerge, g = this.git;
-    this.pendingMerge = null;
-    if (!m || !g || Date.now() - m.at > 120000 || m.root !== g.root || this.merging) return;
+  // Ends a launch before it merges. The caller redraws.
+  stop(why) {
+    const l = this.launch;
+    if (!l) return;
+    this.launch = null;
+    notify({ title: `#${l.number} not shipped`, body: why, level: "info", timeout: 3 });
+  }
+
+  // Paper over the whole window: a frameless window as big as the app's,
+  // which closes itself (mods/ship-it-confetti).
+  confetti() { openOverlay({ mod: "ship-it-confetti", kind: "window", frame: "none", width: 1, height: 1 }); }
+
+  // Merges exactly the commit the launch showed (--match-head-commit): a push
+  // in between makes GitHub refuse rather than merge something unseen.
+  merge(m, cx) {
+    if (this.merging) return;
     this.merging = true;
     cx.spawn(async (cx) => {
       try {
         const args = ["pr", "merge", String(m.number), `--${m.method}`, ...(m.sha ? ["--match-head-commit", m.sha] : [])];
         const r = await exec("gh", args, { cwd: m.root, on: m.on });
-        if (r.code === 0) notify({ title: `#${m.number} shipped`, body: "Merged on GitHub", level: "info", timeout: 4 });
+        if (r.code === 0) { notify({ title: `#${m.number} shipped`, body: "Merged on GitHub", level: "success", timeout: 4 }); this.confetti(); }
         else notify({ title: `#${m.number} not merged`, body: (r.stderr || r.stdout || "gh failed").trim().split("\n").slice(-2).join(" "), level: "error", timeout: 8 });
       } catch (e) { notify({ title: `#${m.number} not merged`, body: String(e), level: "error", timeout: 8 }); }
       finally { this.merging = false; this.refreshPr(cx); cx.notify(); }
@@ -308,12 +335,30 @@ export default class ShipIt extends View {
     return h_flex().id("ship").h(26).px(10).gap(6).flex_none().items_center().rounded(6).border_1()
       .when(!block, (e) => e.border_color(t.solid).bg(t.solid).cursor_pointer().hover((s) => s.opacity(0.88)).on_click((_e, cx) => this.ship(cx)))
       .when(Boolean(block), (e) => e.border_color(t.border).bg(t.background))
-      .tooltip(block ?? `Merge #${this.pr.pr.number} into ${this.pr.pr.baseRefName}`)
+      .tooltip(block ?? `Merge #${this.pr.pr.number} into ${this.pr.pr.baseRefName} · ${COUNTDOWN / 1000} s to stop it`)
       .child(this.icon(merged ? "git-merge" : "rocket", block ? t.dim : t.solid_foreground, 13))
       .child(div().text_color(block ? t.dim : t.solid_foreground).font_semibold().child(this.merging ? "Shipping…" : merged ? "Shipped" : "Ship"));
   }
 
-
+  // The strip during a launch: the rocket crosses it in COUNTDOWN ms with a
+  // trail behind it, both native transitions (no timer redraws the window).
+  // The whole strip stops the launch on a click.
+  launchBar(t, l) {
+    const how = { squash: "Squash and merge", merge: "Merge", rebase: "Rebase and merge" }[l.method];
+    const fly = { duration: COUNTDOWN, easing: "linear" }, end = Math.max(0, this.width - 30);
+    return h_flex().id("ship-it").relative().size_full().px(10).gap(10).items_center().bg(t.chrome).border_b(1).border_color(t.border)
+      .text_size(12).text_color(t.foreground).overflow_hidden().cursor_pointer()
+      .on_size_change((size, cx) => { if (Math.abs(size.width - this.width) > 1) { this.width = size.width; cx.notify(); } })
+      .on_click((_e, cx) => { this.stop("Stopped before the merge"); cx.notify(); })
+      .child(div().id("launch-trail").absolute().left(0).top(0).bottom(0).w(l.go ? end + 8 : 0).bg(t.accent + "2e").transition("width", fly))
+      .child(h_flex().flex_1().min_w(0).pl(34).gap(8).items_center().whitespace_nowrap()
+        .child(div().flex_none().font_semibold().child(`Shipping #${l.number}`))
+        .child(div().min_w(0).truncate().text_color(t.muted).child(how ? `${how} ${l.head} into ${l.base}` : `${l.head} into ${l.base}…`))
+        .when(l.warn.length > 0, (e) => e.child(div().flex_none().text_color(t.ansi3).child(`Note: ${l.warn.join(", ")}`))))
+      .child(h_flex().id("launch-stop").h(26).px(10).gap(6).flex_none().items_center().rounded(6).border_1().border_color(t.border).bg(t.background)
+        .hover((s) => s.bg(t.hover)).child(this.icon("x", t.muted, 13)).child(div().font_semibold().child("Stop")))
+      .child(div().id("launch-rocket").absolute().top(10).left(l.go ? end : 8).transition("left", fly).child(this.icon("rocket", t.accent, 18)));
+  }
 
   folder(t, narrow) {
     const g = this.git, path = g ? tilde(g.root) : tilde(this.loc?.cwd);
@@ -413,8 +458,13 @@ export default class ShipIt extends View {
     // render runs on every focus and space change: follow the new folder now,
     // not at the next poll.
     const loc = location(this.loc);
-    if (JSON.stringify([loc.cwd, loc.on]) !== this.locKey) this.refreshGit(cx);
+    if (JSON.stringify([loc.cwd, loc.on]) !== this.locKey) {
+      // A launch belongs to the folder it began in: it never merges from behind another one.
+      if (this.locKey) this.stop("The focus moved to another folder");
+      this.refreshGit(cx);
+    }
     const t = theme(), g = this.git, narrow = this.width < 900, p = this.panel();
+    if (this.launch) return this.launchBar(t, this.launch);
     // Each is null when there is nothing to show (prButton while the PR loads).
     const s = this.stat, signals = this.showPr() ? this.prSignals(t) : null, prButton = this.showPr() ? this.prButton(t, narrow) : null, checks = this.checksButton(t);
     return h_flex().id("ship-it").size_full().px(10).items_center().bg(t.chrome).border_b(1).border_color(t.border)
