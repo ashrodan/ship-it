@@ -261,6 +261,9 @@ export default class ShipIt extends View {
     if (open) warn.push(`${open} open thread${open > 1 ? "s" : ""}`);
     // The rocket waits at the left (go: false) until the repo says how it merges.
     const l = this.launch = { id: Date.now(), root: g.root, on: g.on, number: pr.number, sha: pr.headRefOid, head: pr.headRefName, base: pr.baseRefName, warn, method: null, go: false };
+    // Draw the rocket at rest now. A click does not redraw on its own, and a
+    // rocket first drawn at its target has no flight: the strip only stalls.
+    cx.notify();
     cx.spawn(async (cx) => {
       const r = await exec("gh", ["repo", "view", "--json", "squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed"], { cwd: l.root, on: l.on }).catch(() => null);
       if (this.launch !== l) return; // stopped while it asked
