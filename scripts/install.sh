@@ -53,7 +53,7 @@ if [[ ! -d "$dest" ]]; then
   exit 1
 fi
 
-for mod in ship-it ship-it-review ship-it-changes ship-it-file ship-it-prs; do
+for mod in ship-it ship-it-review ship-it-changes ship-it-file ship-it-prs ship-it-confetti; do
   mkdir -p "$dest/$mod"
   # Copy the mod's own files; leave the app-written type files alone.
   rsync -a --delete \
@@ -63,7 +63,7 @@ for mod in ship-it ship-it-review ship-it-changes ship-it-file ship-it-prs; do
 done
 
 if command -v herdr-app >/dev/null; then
-  for mod in ship-it ship-it-review ship-it-changes ship-it-file ship-it-prs; do herdr-app check "$dest/$mod"; done
+  for mod in ship-it ship-it-review ship-it-changes ship-it-file ship-it-prs ship-it-confetti; do herdr-app check "$dest/$mod"; done
 fi
 
 if [[ -n "$layout" ]]; then
