@@ -293,7 +293,16 @@ a close button.
     --match-head-commit <sha>` (the first method the repo allows). A push
     after the click makes GitHub refuse. The branch is not deleted. On
     success, a "#720 shipped" toast and the confetti. Commands:
-    `ship-it.ship`, `ship-it.stop`, `ship-it.confetti` (only the paper).
+    `ship-it.ship`, `ship-it.stop`, `ship-it.override`, `ship-it.confetti`
+    (only the paper).
+  - **Override**: while the rocket waits, one `gh api graphql` asks the
+    merge methods and the pull request's `mergeStateStatus` and
+    `viewerCanMergeAsAdmin` (`mergePlan` in `merge.js`). `BLOCKED` and may
+    bypass: no countdown; the strip says "The rules of main block this
+    merge" with **Override and ship** and **Stop**, and a click on the strip
+    itself does nothing. Only Override (or `ship-it.override`) starts the
+    3 s launch, which merges with `--admin`. `BLOCKED` and may not bypass:
+    the launch ends with an error toast. Never `--admin` without that click.
   - Opening the review selects and shows the `ship-it-review` panel (a
     second click on the same tab hides the panel). Without that block it
     focuses this tab's review pane if one exists, else splits one to the
@@ -463,11 +472,12 @@ a close button.
     reading them into the script.
   - `gh pr view --json …`, `gh pr checks --json …`, `gh pr list --state
     open --limit 10 --search … --json …` (more on Load more), `gh api
-    graphql` (the open total, `totalCount`), `gh repo view --json
-    squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed`, `gh api
+    graphql` (the open total, `totalCount`), `gh api graphql` (merge methods, `mergeStateStatus`,
+    `viewerCanMergeAsAdmin`), `gh api
     graphql` (review threads; reply, resolve, unresolve), `gh pr comment`,
     `gh run view --job <id> --log-failed`, `gh run rerun <id> --failed`,
-    `gh pr merge <n> --squash|--merge|--rebase --match-head-commit <sha>`,
+    `gh pr merge <n> --squash|--merge|--rebase --match-head-commit <sha>`
+    (`--admin` after a confirmed override),
     `gh pr create --web`.
 - **Checks** come from `gh pr checks --json`, grouped by its `bucket`
   (`fail` and `cancel` count as failing). Run and job ids are parsed from

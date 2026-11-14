@@ -9,6 +9,7 @@
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { theme, run, layout, shared, setShared, panes, focused, watchFolder, notify, exec, openOverlay, nextCommand } from "herdr";
+import { MERGE_QUERY, mergePlan } from "./merge.js";
 import { READ, tilde, location, gitFacts, prFacts, PR_DETAIL, checks, threads, tally, baseRef, prLook, reviewLook, Recent } from "./data.js";
 
 const ICON = (name) => `mods/ship-it/icons/${name}.svg`;
@@ -243,6 +244,7 @@ export default class ShipIt extends View {
     const c = String(name).replace(/^ship-it[.:]/, "");
     if (c === "ship") this.ship(cx);
     else if (c === "stop") this.stop("Stopped before the merge");
+    else if (c === "override") this.override(cx);
     else if (c === "confetti") this.confetti();
   }
 
@@ -265,20 +267,39 @@ export default class ShipIt extends View {
     // rocket first drawn at its target has no flight: the strip only stalls.
     cx.notify();
     cx.spawn(async (cx) => {
-      const r = await exec("gh", ["repo", "view", "--json", "squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed"], { cwd: l.root, on: l.on }).catch(() => null);
+      const r = await exec("gh", ["api", "graphql", "-f", `query=${MERGE_QUERY}`, "-F", "owner={owner}", "-F", "name={repo}", "-F", `number=${l.number}`], { cwd: l.root, on: l.on }).catch(() => null);
       if (this.launch !== l) return; // stopped while it asked
-      let allowed = {};
-      try { allowed = JSON.parse(r?.stdout || "{}"); } catch {}
-      l.method = allowed.squashMergeAllowed !== false ? "squash" : allowed.mergeCommitAllowed ? "merge" : "rebase";
-      l.go = true;
-      cx.timer.after(COUNTDOWN, (cx) => {
-        if (this.launch !== l) return;
+      let repo = null;
+      try { repo = JSON.parse(r?.stdout || "{}").data?.repository ?? null; } catch {}
+      const plan = mergePlan(repo);
+      l.method = plan.method;
+      if (plan.refuse) {
         this.launch = null;
-        if (this.git?.root === l.root) this.merge(l, cx);
-        cx.notify();
-      });
+        notify({ title: `#${l.number} not shipped`, body: `The rules of ${l.base} block this merge, and you can't override them`, level: "error", timeout: 8 });
+      } else if (plan.override) l.hold = true; // no countdown: the rocket waits for override()
+      else this.fly(l, cx);
       cx.notify();
     });
+  }
+
+  // The countdown: the rocket flies, and the merge follows unless it is stopped.
+  fly(l, cx) {
+    l.hold = false; l.go = true;
+    cx.timer.after(COUNTDOWN, (cx) => {
+      if (this.launch !== l) return;
+      this.launch = null;
+      if (this.git?.root === l.root) this.merge(l, cx);
+      cx.notify();
+    });
+  }
+
+  // The person confirms a merge past the base branch's rules (gh's --admin).
+  // Only a launch that waits for this can take it. The caller redraws.
+  override(cx) {
+    const l = this.launch;
+    if (!l?.hold) return;
+    l.admin = true;
+    this.fly(l, cx);
   }
 
   // Ends a launch before it merges. The caller redraws.
@@ -300,7 +321,7 @@ export default class ShipIt extends View {
     this.merging = true;
     cx.spawn(async (cx) => {
       try {
-        const args = ["pr", "merge", String(m.number), `--${m.method}`, ...(m.sha ? ["--match-head-commit", m.sha] : [])];
+        const args = ["pr", "merge", String(m.number), `--${m.method}`, ...(m.sha ? ["--match-head-commit", m.sha] : []), ...(m.admin ? ["--admin"] : [])];
         const r = await exec("gh", args, { cwd: m.root, on: m.on });
         if (r.code === 0) { notify({ title: `#${m.number} shipped`, body: "Merged on GitHub", level: "success", timeout: 4 }); this.confetti(); }
         else notify({ title: `#${m.number} not merged`, body: (r.stderr || r.stdout || "gh failed").trim().split("\n").slice(-2).join(" "), level: "error", timeout: 8 });
@@ -354,14 +375,20 @@ export default class ShipIt extends View {
     return h_flex().id("ship-it").relative().size_full().px(10).gap(10).items_center().bg(t.chrome).border_b(1).border_color(t.border)
       .text_size(12).text_color(t.foreground).overflow_hidden().cursor_pointer()
       .on_size_change((size, cx) => { if (Math.abs(size.width - this.width) > 1) { this.width = size.width; cx.notify(); } })
-      .on_click((_e, cx) => { this.stop("Stopped before the merge"); cx.notify(); })
+      .when(!l.hold, (e) => e.on_click((_e, cx) => { this.stop("Stopped before the merge"); cx.notify(); }))
       .child(div().id(`launch-trail-${l.id}`).absolute().left(0).top(0).bottom(0).w(l.go ? end + 8 : 0).bg(t.accent + "2e").transition("width", fly))
       .child(h_flex().flex_1().min_w(0).pl(34).gap(8).items_center().whitespace_nowrap()
         .child(div().flex_none().font_semibold().child(`Shipping #${l.number}`))
-        .child(div().min_w(0).truncate().text_color(t.muted).child(how ? `${how} ${l.head} into ${l.base}` : `${l.head} into ${l.base}…`))
+        .child(div().min_w(0).truncate().text_color(t.muted).child(how ? `${how} ${l.head} into ${l.base}${l.admin ? ", past its rules" : ""}` : `${l.head} into ${l.base}…`))
+        .when(Boolean(l.hold), (e) => e.child(div().flex_none().text_color(t.ansi3).child(`The rules of ${l.base} block this merge`)))
         .when(l.warn.length > 0, (e) => e.child(div().flex_none().text_color(t.ansi3).child(`Note: ${l.warn.join(", ")}`))))
+      .when(Boolean(l.hold), (e) => e.child(h_flex().id("launch-override").h(26).px(10).gap(6).flex_none().items_center().rounded(6).border_1().border_color(t.ansi3).bg(t.background).cursor_pointer()
+        .hover((s) => s.bg(t.hover)).tooltip(`gh pr merge --admin: merge #${l.number} without what the rules of ${l.base} require`)
+        .on_click((_e, cx) => { this.override(cx); cx.notify(); })
+        .child(this.icon("rocket", t.ansi3, 13)).child(div().font_semibold().text_color(t.ansi3).child("Override and ship"))))
       .child(h_flex().id("launch-stop").h(26).px(10).gap(6).flex_none().items_center().rounded(6).border_1().border_color(t.border).bg(t.background)
-        .hover((s) => s.bg(t.hover)).child(this.icon("x", t.muted, 13)).child(div().font_semibold().child("Stop")))
+        .hover((s) => s.bg(t.hover)).cursor_pointer().on_click((_e, cx) => { this.stop("Stopped before the merge"); cx.notify(); })
+        .child(this.icon("x", t.muted, 13)).child(div().font_semibold().child("Stop")))
       .child(div().id(`launch-rocket-${l.id}`).absolute().top(10).left(l.go ? end : 8).transition("left", fly).child(this.icon("rocket", t.accent, 18)));
   }
 

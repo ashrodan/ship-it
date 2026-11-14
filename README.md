@@ -122,8 +122,9 @@ file · `v` viewed · `n` next unviewed · `e` open the file · `⌘↵` post ·
 (`ship-it-review.files`, `ship-it-review.next-unviewed`, …). The PRs panel
 has `ship-it-prs.more`, `.refresh`, `.all`, `.mine`, `.review` and
 `.worktree-<number>` (open that PR in a worktree space) and `.details-<number>`.
-The strip has `ship-it.ship` (start the launch), `ship-it.stop` and
-`ship-it.confetti` (only the paper, nothing merges).
+The strip has `ship-it.ship` (start the launch), `ship-it.stop`,
+`ship-it.override` (confirm a merge past the branch's rules, only while a
+launch waits for it) and `ship-it.confetti` (only the paper, nothing merges).
 
 ## What it does on your behalf
 
@@ -136,7 +137,7 @@ only on a click:
 | Comment | `gh pr comment` |
 | Reply, Resolve, Reopen | GitHub GraphQL review-thread mutations |
 | Re-run failed | `gh run rerun --failed` |
-| Ship | `gh pr merge --squash` (or `--merge`/`--rebase`, whichever the repo allows) `--match-head-commit <sha>`, 3 seconds after the click unless you stop the launch (click the strip, or `ship-it.stop`). It also stops when the focus moves to another folder. A push after the click makes GitHub refuse. The branch is kept. |
+| Ship | `gh pr merge --squash` (or `--merge`/`--rebase`, whichever the repo allows) `--match-head-commit <sha>`, 3 seconds after the click unless you stop the launch (click the strip, or `ship-it.stop`). It also stops when the focus moves to another folder. A push after the click makes GitHub refuse. The branch is kept. When the base branch's rules block the merge (GitHub's `mergeStateStatus` is `BLOCKED`), nothing merges on its own: if you may bypass the rules (`viewerCanMergeAsAdmin`), the launch waits with no countdown until you click **Override and ship** (or `ship-it.override`), and then adds `--admin`; if you may not, the launch ends with a message. |
 | Create | `gh pr create --web` |
 | Worktree (a PR's branch button) | `git fetch origin <branch>`, then `git worktree add --track -b <branch> ~/.herdr/worktrees/<repo>/<branch> origin/<branch>` (a local branch of that name is checked out as it is). A fork's PR: `git fetch origin pull/<n>/head` on a new `pr-<n>`. Then a space opens on it, nested under the repo's. When the checkout exists, its space is shown instead. |
 
