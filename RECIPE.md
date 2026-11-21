@@ -6,7 +6,7 @@ review state. Four buttons take you from there to shipping it: the **PR**
 (number, state and title; it opens the review), **changes** (the file count
 and `+/−` of what the branch changes since its base, in the side panel; double-click a
 file to open it whole in a pane), **PRs** (the repo's open pull requests)
-and **Ship** (merges the PR, after a confirm). The PR's state, checks and
+and **Ship** (merges the PR, after a 3 s launch you can stop). The PR's state, checks and
 threads open the review in the side panel (a pane to the right when the
 layout has no review panel), with three tabs: **Overview** (the
 description, the conversation and a comment box), **Files** (every change
@@ -140,11 +140,24 @@ from the theme's ANSI colours, the terminal font at 12px). "Binary file · no
 text preview" or "This file is not there now (deleted on this branch?)"
 when it can't show it.
 
-### The Ship confirm
+### The Ship launch
 
-Herdr's own `confirm` dialog, 420 × 200: "Ship #720?" and "Squash and merge
-`head` into `base`. Note: 2 checks failing, not approved yet, 1 open thread.
-The branch stays." (the Note only lists what applies).
+No dialog. A click on Ship turns the whole strip into a launch for 3 s:
+"Shipping #720" (semibold), "Squash and merge `head` into `base`" (`muted`),
+"Note: 2 checks failing, not approved yet, 1 open thread" (`ansi3`; only
+what applies), and a **Stop** button (`x`) on the right. A rocket (`accent`,
+18px) crosses the strip from left to right in those 3 s with a trail behind
+it (`accent` at 18%). The rocket waits at the left until `gh repo view` has
+said how the repo merges; the 3 s start then. A click anywhere on the strip
+stops it ("#720 not shipped" toast). So does a focus move to another folder.
+When the rocket arrives, the merge runs.
+
+### The confetti (`ship-it-confetti`)
+
+When the merge succeeds: 140 pieces of paper in the theme's `ansi1`–`ansi6`
+and `accent` fall from above the top edge over the whole window (sidebar
+included), drift sideways, and fade in the last 40% of their fall. The slowest
+lands after 2.6 s; the window then closes itself. A press closes it at once.
 
 ### The review (`ship-it-review`)
 
@@ -274,11 +287,22 @@ a close button.
     closes it.
   - **Repo** (first on the left): toggles the Pull requests panel. A row opens its details and
     actions; its number copies the link. Filters: All, Mine, To review.
-  - **Ship**: asks first (Herdr's `confirm` dialog: how it merges, what
-    into, and any failing or running checks, missing approval or open
-    threads), then `gh pr merge <n> --squash|--merge|--rebase
+  - **Ship**: starts the launch (above: how it merges, what into, and any
+    failing or running checks, missing approval or open threads). After
+    3 s without a stop, `gh pr merge <n> --squash|--merge|--rebase
     --match-head-commit <sha>` (the first method the repo allows). A push
-    after the dialog opened makes GitHub refuse. The branch is not deleted.
+    after the click makes GitHub refuse. The branch is not deleted. On
+    success, a "#720 shipped" toast and the confetti. Commands:
+    `ship-it.ship`, `ship-it.stop`, `ship-it.override`, `ship-it.confetti`
+    (only the paper).
+  - **Override**: while the rocket waits, one `gh api graphql` asks the
+    merge methods and the pull request's `mergeStateStatus` and
+    `viewerCanMergeAsAdmin` (`mergePlan` in `merge.js`). `BLOCKED` and may
+    bypass: no countdown; the strip says "The rules of main block this
+    merge" with **Override and ship** and **Stop**, and a click on the strip
+    itself does nothing. Only Override (or `ship-it.override`) starts the
+    3 s launch, which merges with `--admin`. `BLOCKED` and may not bypass:
+    the launch ends with an error toast. Never `--admin` without that click.
   - Opening the review selects and shows the `ship-it-review` panel (a
     second click on the same tab hides the panel). Without that block it
     focuses this tab's review pane if one exists, else splits one to the
@@ -376,6 +400,8 @@ a close button.
     `mod.json` `{"place": "none", "title": "Pull requests"}`.
   - `mods/ship-it-file/`: `main.js` (the file pane), `mod.json`
     `{"place": "none", "title": "File"}`. Props `{ root, on, path }`.
+  - `mods/ship-it-confetti/`: `main.js` (the window), `pieces.js` (the
+    paper of one throw), `mod.json` `{"place": "none", "title": "Ship it · Confetti"}`.
   - `scripts/install.sh` copies `data.js`, `files.js` and `icons/` into
     the mods that use them (a mod can't import from another mod's folder),
     installs the five into `${HERDR_APP_HOME:-~/.config/herdr-app}/mods/`
@@ -419,11 +445,20 @@ a close button.
   `on_item_click`, `track_scroll`), `Scrollbar`, `TextView.markdown`,
   `TextareaState` / `Textarea`, `EditorState` / `Editor`. `cx.sleep` for
   the watch settle.
-- **Shipped mods used:** `confirm` (the Ship dialog, opened with
-  `openOverlay({ mod: "confirm", kind: "dialog", props: { title, detail,
-  command: { name: "ship-it.merge" } } })`; the strip gets `merge` from
-  `nextCommand()` and merges what it stored when it opened the dialog,
-  if under 2 minutes old), `toast` (through `notify`).
+- **Shipped mods used:** `toast` (through `notify`).
+- **Motion is native.** The rocket and its trail are `transition("left" |
+  "width", { duration: 3000, easing: "linear" })`; each piece of paper has
+  `transition`s on `top` (ease-in), `left` (ease-out) and `opacity`, each
+  with its own `delay`. A transition animates a change, not a first value:
+  draw the start once, then the end (the paper: 40 ms after the first size
+  report). One `cx.timer.after` ends the launch, one closes the confetti; no
+  timer redraws.
+- **The confetti is an overlay**, the only way a mod draws outside its
+  block: `openOverlay({ mod: "ship-it-confetti", kind: "window", frame:
+  "none", width: 1, height: 1 })` (1 = the whole app window; no frame, no
+  background, no dimming). Give it a size: a window sized by its content is
+  0 px high around absolute children. It closes with
+  `closeOverlay(props().overlay)`.
 - **Commands:** `layout.select`, `layout.show`, `layout.hide`,
   `pane.split`, `pane.focus`.
 - **Programs** (through `exec`, on the space's machine):
@@ -437,11 +472,12 @@ a close button.
     reading them into the script.
   - `gh pr view --json …`, `gh pr checks --json …`, `gh pr list --state
     open --limit 10 --search … --json …` (more on Load more), `gh api
-    graphql` (the open total, `totalCount`), `gh repo view --json
-    squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed`, `gh api
+    graphql` (the open total, `totalCount`), `gh api graphql` (merge methods, `mergeStateStatus`,
+    `viewerCanMergeAsAdmin`), `gh api
     graphql` (review threads; reply, resolve, unresolve), `gh pr comment`,
     `gh run view --job <id> --log-failed`, `gh run rerun <id> --failed`,
-    `gh pr merge <n> --squash|--merge|--rebase --match-head-commit <sha>`,
+    `gh pr merge <n> --squash|--merge|--rebase --match-head-commit <sha>`
+    (`--admin` after a confirmed override),
     `gh pr create --web`.
 - **Checks** come from `gh pr checks --json`, grouped by its `bucket`
   (`fail` and `cancel` count as failing). Run and job ids are parsed from
@@ -496,8 +532,10 @@ a close button.
   a time limit so it can't block forever.
 - **Ship merges for real.** Never test it on a PR that shouldn't merge.
   `gh pr merge` needs a method flag when not on a terminal.
-- `nextCommand()` gives only the command name, no arguments: keep what the
-  confirm should act on in the strip.
+- **A launch must be easy to stop and can't outlive its place.** Keep what
+  it will merge (number, commit, method) in the strip from the click on; drop
+  it on a stop and when the focused folder changes, and let the timer merge
+  only the launch it started.
 - Mods run with the person's full permissions. Say before installing that
   Ship it runs `git`, `grep`, `gh` and the system URL opener, and that
   Comment, Reply, Resolve, Re-run and Ship write to GitHub.
@@ -524,8 +562,10 @@ a close button.
   updated, the current branch's PR marked, and Load 10 more adds the next 10;
   Mine and To review list yours and those waiting for your review.
 - **Ship** is solid on an open, non-draft, conflict-free PR and dim with the
-  reason otherwise; it opens the confirm, and confirming merges (test on a
-  throwaway PR) and turns the button to **Shipped**.
+  reason otherwise; a click starts the 3 s launch, a click on the strip
+  stops it with nothing merged, and left alone it merges (test on a
+  throwaway PR), throws confetti and turns the button to **Shipped**.
+  `herdr-app do ship-it.confetti` shows the paper alone.
 - Files: the count and `+/−` match `git diff $(git merge-base HEAD
   origin/<base>) --shortstat` plus untracked files.
 - `v` marks a file viewed; editing it clears the mark; marks survive a
