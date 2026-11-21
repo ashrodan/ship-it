@@ -42,11 +42,13 @@ strip, PR changes, the review, the PR list and Ship.
   looks wrong (failing checks, no approval, open threads). Click the strip to
   stop it. When the merge lands, confetti falls over the window.
 - **The review** (the PR button on the strip) opens in the side panel, like
-  Changes, and has three tabs:
+  Changes, and has four tabs:
   **Overview** (description, conversation, conflicts with a copyable list,
   open threads, a comment box), **Files** (the diff, "viewed" marks, inline
-  threads with Reply and Resolve) and **Checks** (failing first, the failed
-  log's tail, Re-run failed).
+  threads with Reply and Resolve), **Checks** (failing first, the failed
+  log's tail, Re-run failed) and **Commits** (the branch's commits with
+  what is not pushed or not pulled; a click shows a commit's message and
+  files).
 
 ## Install
 
@@ -116,8 +118,8 @@ review opens as a pane to the right instead.
 
 ## Keys (review pane)
 
-`1` `2` `3` tabs · `r` refresh · `o` open on GitHub · `j`/`k` next/previous
-file · `v` viewed · `n` next unviewed · `e` open the file · `⌘↵` post ·
+`1`–`4` tabs · `r` refresh · `o` open on GitHub · `j`/`k` next/previous
+file or commit · `enter` open a commit · `v` viewed · `n` next unviewed · `e` open the file · `⌘↵` post ·
 `esc` close a drawer or log. Bindable as commands too
 (`ship-it-review.files`, `ship-it-review.next-unviewed`, …). The PRs panel
 has `ship-it-prs.more`, `.refresh`, `.all`, `.mine`, `.review` and
@@ -135,6 +137,8 @@ only on a click:
 | Action | Runs |
 | --- | --- |
 | Comment | `gh pr comment` |
+| Ready for review / Convert to draft | `gh pr ready <n>` / `gh pr ready <n> --undo` (open PRs only) |
+| Assign me, × on an assignee | `gh pr edit <n> --add-assignee @me` / `gh pr edit <n> --remove-assignee <login>` (open PRs only) |
 | Reply, Resolve, Reopen | GitHub GraphQL review-thread mutations |
 | Re-run failed | `gh run rerun --failed` |
 | Ship | `gh pr merge --squash` (or `--merge`/`--rebase`, whichever the repo allows) `--match-head-commit <sha>`, 3 seconds after the click unless you stop the launch (click the strip, or `ship-it.stop`). It also stops when the focus moves to another folder. A push after the click makes GitHub refuse. The branch is kept. When the base branch's rules block the merge (GitHub's `mergeStateStatus` is `BLOCKED`), nothing merges on its own: if you may bypass the rules (`viewerCanMergeAsAdmin`), the launch waits with no countdown until you click **Override and ship** (or `ship-it.override`), and then adds `--admin`; if you may not, the launch ends with a message. |
